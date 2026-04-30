@@ -2,9 +2,11 @@ from typing import Optional, Union
 
 import numpy as np
 import xarray as xr
+from loguru import logger
 from pint import Quantity
 from scipy.special import erfc, erfcinv
 from xrench.units import ureg
+from xrench.xrutils import wraps_xr
 
 __all__ = ("mpsk_ber", "mpsk_ebno", "mqam_ber", "mqam_ebno")
 
@@ -55,10 +57,11 @@ def Qinv(q: xr.DataArray | float) -> xr.DataArray | float:
     return x
 
 
+@wraps_xr("dimensionless", kwarg_units={"p": None, "ebno": "dimensionless"})
 def mqam_ber(
     p: int | xr.DataArray | None = DEFAULT_ORDER,
     ebno: Quantity | xr.DataArray | None = DEFAULT_EBNO,
-):
+) -> xr.DataArray | Quantity | float:
     """
     Calculates the M-ary bit error rate (BER) for a quadrature amplitude modulation scheme (QAM) signal over
     an additive white Gaussian noise channel.
@@ -75,11 +78,6 @@ def mqam_ber(
     Jianhua Lu, K. B. Letaief, J. C. . -I. Chuang and M. L. Liou, "M-PSK and M-QAM BER computation using signal-space
     concepts," in IEEE Transactions on Communications, vol. 47, no. 2, pp. 181-184, Feb. 1999, doi: 10.1109/26.752121.
     """
-    # Convert ebno to base units
-    if isinstance(ebno, xr.DataArray):
-        ebno.data = ebno.data.to_base_units()
-    else:
-        ebno = ebno.to_base_units()
     # Calculate number of constellation points m
     m = 2**p
     qkern = np.sqrt(3 * np.log2(m) * ebno / (m - 1))
@@ -88,7 +86,7 @@ def mqam_ber(
         qsums = []
         for mi in m:
             itmp = range(1, int(np.sqrt(mi) / 2) + 1)
-            itmp = xr.DataArray(itmp, dims=("tmp"), coords=dict(tmp=itmp))
+            itmp = xr.DataArray(itmp, dims=("tmp"), coords={"tmp": itmp})
             iqkern = (2 * itmp - 1) * qkern.sel(modulation_order=mi.modulation_order)
             qsums.append(Q(iqkern).sum(dim="tmp"))
         qsum = xr.concat(qsums, "modulation_order")
@@ -102,15 +100,18 @@ def mqam_ber(
         pb.name = "BER"
         pb.attrs = {
             **pb.attrs,
-            **dict(long_name="QAM Bit Error Rate", units="", description="QAM BER"),
+            "long_name": "QAM Bit Error Rate",
+            "units": "",
+            "description": "QAM BER",
         }
     return pb
 
 
+@wraps_xr("dimensionless", kwarg_units={"p": None, "ebno": "dimensionless"})
 def mpsk_ber(
     p: int | xr.DataArray | None = DEFAULT_ORDER,
     ebno: Quantity | xr.DataArray | None = DEFAULT_EBNO,
-):
+) -> xr.DataArray | Quantity | float:
     """
     Calculates the M-ary bit error rate (BER) for a phase-shift keying scheme (PSK) signal over
     an additive white Gaussian noise channel.
@@ -127,11 +128,6 @@ def mpsk_ber(
     Jianhua Lu, K. B. Letaief, J. C. . -I. Chuang and M. L. Liou, "M-PSK and M-QAM BER computation using signal-space
     concepts," in IEEE Transactions on Communications, vol. 47, no. 2, pp. 181-184, Feb. 1999, doi: 10.1109/26.752121.
     """
-    # Convert ebno to base units
-    if isinstance(ebno, xr.DataArray):
-        ebno.data = ebno.data.to_base_units()
-    else:
-        ebno = ebno.to_base_units()
     # Calculate number of constellation points m
     m = 2**p
     qkern = np.sqrt(2 * np.log2(m) * ebno) * np.sin(np.pi / m)
@@ -146,7 +142,8 @@ def mpsk_ber(
     return pb
 
 
-def mpsk_ebno(p: int, ber: float):
+@wraps_xr("dB", [None, None])
+def mpsk_ebno(p: int, ber: float) -> Quantity:
     """
     Solve for the Eb/No required to meet the specified BER for a phase-shift keying scheme (PSK) signal over
     an additive white Gaussian noise channel.
@@ -169,11 +166,12 @@ def mpsk_ebno(p: int, ber: float):
         ebno_lin = (Qinv(ber) / np.sin(np.pi / m)) ** 2 / (2 * np.log2(m))
     elif m >= 4:
         ebno_lin = (Qinv(ber * np.log2(m) / 2) / np.sin(np.pi / m)) ** 2 / (2 * np.log2(m))
-    ebno = 10 * np.log10(ebno_lin) * ureg.dB
+    ebno = 10 * np.log10(ebno_lin)
     return ebno
 
 
-def mqam_ebno(p, ber)->Quantity:
+@wraps_xr("dB", [None, None])
+def mqam_ebno(p: int, ber: float) -> Quantity:
     """
     Solve for the Eb/No required to meet the specified BER for a quadrature amplitude modulation scheme (QAM) signal
     over an additive white Gaussian noise channel.
@@ -193,15 +191,15 @@ def mqam_ebno(p, ber)->Quantity:
     # Coarse
     ebno_coarse = np.linspace(0, 50, 50001) * ureg.dB
     ebno_coarse = xr.DataArray(ebno_coarse, dims=("ebno",), coords={"ebno": ebno_coarse})
-    qamber = mqam_ber(p, ebno_coarse)
-    ebno = qamber.isel(ebno=abs(qamber - ber).argmin()).ebno
+    qamber = mqam_ber(p=p, ebno=ebno_coarse)
+    ebno = qamber.isel(ebno=int(np.argmin(np.abs(qamber.data - ber)))).ebno
 
     # Fine
     ebno_fine = np.linspace(ebno.item() - 0.002, ebno.item() + 0.002, 40001) * ureg.dB
     ebno_fine = xr.DataArray(ebno_fine, dims=("ebno",), coords=dict(ebno=ebno_fine))
-    qamber = mqam_ber(p, ebno_fine)
-    ebno = qamber.isel(ebno=abs(qamber - ber).argmin()).ebno
-    return ebno.item() * ureg.dB
+    qamber = mqam_ber(p=p, ebno=ebno_fine)
+    ebno = qamber.isel(ebno=int(np.argmin(np.abs(qamber.data - ber)))).ebno.item()
+    return ebno
 
 
 if __name__ == "__main__":

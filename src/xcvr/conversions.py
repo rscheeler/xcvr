@@ -1,6 +1,4 @@
-"""
-Conversions module
-"""
+"""Conversions module."""
 
 from typing import Union
 
@@ -8,7 +6,7 @@ from pint import Quantity
 from xarray import DataArray
 
 
-def nf2temp(nf: Union[Quantity, DataArray], t0: Quantity) -> Union[Quantity, DataArray]:
+def nf2temp(nf: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:
     """
     Converts noise figure to noise temperature.
 
@@ -19,7 +17,7 @@ def nf2temp(nf: Union[Quantity, DataArray], t0: Quantity) -> Union[Quantity, Dat
     t0 : Quantity, DataArray
         Reference temperature
 
-    Returns
+    Returns:
     -------
     te : Quantity, DataArray
         Equivalent input noise temperature.
@@ -27,7 +25,7 @@ def nf2temp(nf: Union[Quantity, DataArray], t0: Quantity) -> Union[Quantity, Dat
     return t0 * (nf - 1)
 
 
-def temp2nf(temp: Union[Quantity, DataArray], t0: Quantity) -> Union[Quantity, DataArray]:
+def temp2nf(temp: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:
     """
     Converts equivalent input noise temperature to noise figure.
 
@@ -38,7 +36,7 @@ def temp2nf(temp: Union[Quantity, DataArray], t0: Quantity) -> Union[Quantity, D
     t0 : Quantity, DataArray
         Reference temperature.
 
-    Returns
+    Returns:
     -------
     nf : Quantity, DataArray
         Noise figure

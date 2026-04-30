@@ -5,15 +5,19 @@
   "python.testing.pytestEnabled": true,
   "ruff.configurationPreference": "filesystemFirst",
   "ruff.configuration": "pyproject.toml",
-
-  
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
   // mypy settings
-  "python.linting.mypyEnabled": true,
-  "python.linting.mypyArgs": [
+  "mypy-type-checker.args": [
     "--ignore-missing-imports",
     "--follow-imports=silent",
     "--show-column-numbers",
     "--strict"
   ]
-  
 }

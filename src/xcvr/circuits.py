@@ -1,62 +1,43 @@
-from typing import List, Union, Optional
 from collections import namedtuple
-
-import schemdraw.elements
-from . import symbols as sym
-import skrf
-import schemdraw
-from schemdraw import elements as elm
-import numpy as np
-from pint import Quantity
-from . import ureg
-from .rfcascade import Device
-from scipy.optimize import minimize
-from functools import partial
 from copy import copy, deepcopy
+from functools import partial
 from operator import itemgetter
+from typing import Any, Optional, Union
+
+import numpy as np
+import schemdraw
+import schemdraw.elements
+import skrf
+from pint import Quantity
+from schemdraw import elements as elm
+from scipy.optimize import minimize
+from xrench.units import ureg
+
+from . import symbols as sym
+from .xcvr import Device
 
 Node = namedtuple("Node", ["x", "y"])
 
 
-def dequantify(func):
-    def wrapped(*args, **kwargs):
-        cargs = []
-        for a in args:
-            if isinstance(a, Quantity):
-                cargs.append(a.to(ureg.parse_unit_name(str(a.units))[0][1]).magnitude)
-            else:
-                cargs.append(a)
-        ckwargs = dict()
-        for k, v in kwargs.items():
-            if isinstance(a, Quantity):
-                ckwargs[k] = a.to(ureg.parse_unit_name(str(a.units))[0][1]).magnitude
-            else:
-                ckwargs[k] = a
-
-        return func(*cargs, **ckwargs)
-
-    return wrapped
-
-
-class CircuitElement(object):
+class CircuitElement:
     """
     Element container for skrf media object. The container delays the object instance creation until the block diagram is requested.
     """
 
     def __init__(
         self,
-        media: Union[skrf.media.Media, skrf.circuit.Circuit],
+        media: skrf.media.Media | skrf.circuit.Circuit,
         circuit: str,
         nodes: tuple,
-        name,
-        *circuit_args,
-        symbol_offset=np.array([0, 0]),
-        symbol_args=[],
-        symbol_kwargs: Optional[dict] = None,
-        network=None,
-        lblloc="top",
-        **circuit_kwargs,
-    ):
+        name: str,
+        *circuit_args: Any,
+        symbol_offset: np.typing.ArrayLike = np.array([0, 0]),
+        symbol_args: list | None = None,
+        symbol_kwargs: dict | None = None,
+        network: skrf.Network | None = None,
+        lblloc: str = "top",
+        **circuit_kwargs: Any,
+    ) -> None:
         if network is None:
             # Parse the args and kwargs
             cargs = []
@@ -120,7 +101,16 @@ class CircuitElement(object):
 
 
 class Circuit:
-    def __init__(self, nodes, elems: List[CircuitElement], name="", manufacturer="", pn=""):
+    """Element container for for CircuitElements."""
+
+    def __init__(
+        self,
+        nodes: list[Node],
+        elems: list[CircuitElement],
+        name: str = "",
+        manufacturer: str = "",
+        pn: str = "",
+    ) -> None:
         self.elems = elems
         self.nodes = nodes
         self._connections = None
@@ -131,7 +121,7 @@ class Circuit:
         self.pn = pn
 
     @property
-    def connections(self):
+    def connections(self) -> list[list[tuple[skrf.Network, int]]]:
         if self._connections is None:
             _connections = []
             for node in range(len(self.nodes)):
@@ -144,31 +134,29 @@ class Circuit:
         return self._connections
 
     @property
-    def circuit(self):
+    def circuit(self) -> skrf.Circuit:
         if self._circuit is None:
             self._circuit = skrf.Circuit(self.connections)
             self._circuit.network.name = self.name
         return self._circuit
 
     @property
-    def network(self):
+    def network(self) -> skrf.Network:
         if self._network is None:
             self._network = self.circuit.network
             self._network.name = self.name
         return self._network
 
-    def element(self, show_ports=True, show_nodes=True) -> elm.Element:
+    def element(self, show_ports: bool = True, show_nodes: bool = True) -> elm.Element:
         elm.ElementCompound
 
-    def symbol(self, show_ports=True, show_nodes=True):
+    def symbol(self, show_ports: bool = True, show_nodes: bool = True) -> _CircuitCE:
         dwg = _CircuitCE(self, show_ports=show_ports, show_nodes=show_nodes)
 
         return dwg
 
-    def as_device(self, **kwargs):
-        """
-        Convert circuit to device
-        """
+    def as_device(self, **kwargs: Any) -> Device:
+        """Convert circuit to device."""
         dev = Device(
             self.name,
             self.manufacturer,
@@ -189,10 +177,8 @@ def connect_circuits(
     name: str = "",
     manufacturer: str = "",
     pn: str = "",
-):
-    """
-    Connect circuit 0 and circuit 1.
-    """
+) -> Circuit:
+    """Connect circuit 0 and circuit 1."""
     c0c = deepcopy(c0)
     c1c = deepcopy(c1)
 
@@ -242,13 +228,13 @@ def connect_circuits(
 
 
 class _CircuitCE(elm.ElementCompound):
-    def __init__(self, parent, show_ports=True, show_nodes=True):
+    def __init__(self, parent: Circuit, show_ports: bool = True, show_nodes: bool = True) -> None:
         self.show_ports = show_ports
         self.show_nodes = show_nodes
         self.parent = parent
         super().__init__()
 
-    def setup(self, show_ports=True, show_nodes=True):
+    def setup(self, show_ports: bool = True, show_nodes: bool = True) -> None:
         shift = [[1, 0], [0, 1]]
 
         # Place nodes
@@ -263,13 +249,19 @@ class _CircuitCE(elm.ElementCompound):
                 # Determine if parallel element
                 parallel = False
                 if len(locs) != 0:
-                    node_intersection = np.array(locs) - np.array(itemgetter(*e.nodes)(self.parent.nodes))
+                    node_intersection = np.array(locs) - np.array(
+                        itemgetter(*e.nodes)(self.parent.nodes),
+                    )
                     for i in range(node_intersection.shape[0]):
                         ni = node_intersection[i, ...]
                         if np.count_nonzero(ni == 0) > 2:
                             parallel = True
                 if parallel:
-                    diff = np.diff(np.array(itemgetter(*e.nodes)(self.parent.nodes)), axis=0).squeeze().tolist()
+                    diff = (
+                        np.diff(np.array(itemgetter(*e.nodes)(self.parent.nodes)), axis=0)
+                        .squeeze()
+                        .tolist()
+                    )
                     shift_idx = diff.index(0)
                     ofst += shift[shift_idx]
                 if isinstance(e.symbol(), schemdraw.dsp.Square):
@@ -291,42 +283,41 @@ class _CircuitCE(elm.ElementCompound):
                         e.symbol(
                             at=np.array(self.parent.nodes[e.nodes[0]]) + ofst,
                             to=np.array(self.parent.nodes[e.nodes[1]]) + ofst,
-                        )
+                        ),
                     )
                 # Add connecting lines
                 self.add(
                     elm.Line(
                         at=np.array(self.parent.nodes[e.nodes[0]]),
                         to=np.array(self.parent.nodes[e.nodes[0]]) + ofst,
-                    )
+                    ),
                 )
                 self.add(
                     elm.Line(
                         at=np.array(self.parent.nodes[e.nodes[1]]),
                         to=np.array(self.parent.nodes[e.nodes[1]]) + ofst,
-                    )
+                    ),
                 )
                 locs.append(itemgetter(*e.nodes)(self.parent.nodes))
 
+            elif e.symbol.element == sym.Port and not show_ports:
+                pass
             else:
-                if e.symbol.element == sym.Port and not show_ports:
-                    pass
-                else:
-                    self.add(e.symbol(at=np.array(self.parent.nodes[e.nodes[0]]) + ofst))
+                self.add(e.symbol(at=np.array(self.parent.nodes[e.nodes[0]]) + ofst))
 
-                    self.add(
-                        elm.Line(
-                            at=np.array(self.parent.nodes[e.nodes[0]]),
-                            to=np.array(self.parent.nodes[e.nodes[0]]) + ofst,
-                        )
-                    )
+                self.add(
+                    elm.Line(
+                        at=np.array(self.parent.nodes[e.nodes[0]]),
+                        to=np.array(self.parent.nodes[e.nodes[0]]) + ofst,
+                    ),
+                )
 
 
-def lnet_circuit(*d, tlin=None, yymtype=1):
+def lnet_circuit(*d: Any, tlin: skrf.Network | None = None, yymtype: int = 1) -> Circuit:
     """
-    Generates an L-network Circuit. Types from Yin and Yang of matching part 1 definced by yymtype.
+    Generates an L-network Circuit.
+    Types from Yin and Yang of matching part 1 definced by yymtype.
     """
-
     unit = 4
     nodes = [Node(0, 0), Node(unit, 0), Node(0, -unit)]
 
@@ -460,16 +451,26 @@ def lnet_circuit(*d, tlin=None, yymtype=1):
     return match
 
 
-def optimal_match_worker(x, f0str="1GHz", tlin=None, yymtype=1, load=None):
-    """
-    Matching worker function.
-    """
+def optimal_match_worker(
+    x: Any,
+    f0str: str = "1GHz",
+    tlin: skrf.Network | None = None,
+    yymtype: int = 1,
+    load: skrf.Network | None = None,
+) -> np.ndarray:
+    """Matching worker function. Used for optimization of matching circuit."""
     _ntw = lnet_circuit(*x, tlin=tlin, yymtype=yymtype).network ** load
 
     return np.abs(_ntw[f0str].s00.s).ravel()
 
 
-def optimize_match(load: Circuit, f0str: str, yymtype: int, igs=None, bounds=None):
+def optimize_match(
+    load: Circuit,
+    f0str: str,
+    yymtype: int,
+    igs: Any = None,
+    bounds: tuple | None = None,
+) -> tuple[Circuit, Circuit]:
     """
     Generate a matching circuit of type yymtype from the Yin and Yang of matching part 1.
     Run optimized to match the load at the specified frequency.

@@ -1,13 +1,19 @@
+from typing import Any
+
 import numpy as np
 from matplotlib import pyplot as plt
-from .rfcascade import System
 from xarray import DataArray
 
+from .xcvr import System
 
-def plot_cascade(rfsys: System, prop: str = "gain", xtick_params: dict = dict(rotation=30), **kwargs) -> plt.Axes:
-    """
-    Plot cascaded parameter
-    """
+
+def plot_cascade(
+    rfsys: System,
+    prop: str = "gain",
+    xtick_params: dict = dict(rotation=30),
+    **kwargs: Any,
+) -> plt.Axes:
+    """Plot cascaded parameter."""
     # Get cascaded property
     cp = rfsys.__getattribute__(f"cascaded_{prop}").sel(**kwargs)
 
@@ -24,11 +30,12 @@ def plot_cascade(rfsys: System, prop: str = "gain", xtick_params: dict = dict(ro
 
 
 def plot_signal_compression(
-    rfsys: System, input_pwr: DataArray, xtick_params: dict = dict(rotation=30), **kwargs
+    rfsys: System,
+    input_pwr: DataArray,
+    xtick_params: dict = dict(rotation=30),
+    **kwargs: Any,
 ) -> plt.Axes:
-    """
-    Plot signal level and compression through system.
-    """
+    """Plot signal level and compression through system."""
     # Get signal level and cascaded compression values
     siglev = rfsys.get_signal_level(input_pwr.sel(**kwargs), **kwargs)
     p1db = rfsys.cascaded_p1db.sel(**kwargs)
@@ -44,7 +51,14 @@ def plot_signal_compression(
     y = siglev.plot.line(ax=ax, x="device", label="Signal Level")
     y1 = p1db.plot.line(ax=ax, x="device", color="C1", ls="--", label="P1dB")
     ysat = psat.plot.line(ax=ax, x="device", color="C3", ls="--", label="Psat")
-    ysatdev = psatdev.plot.line(ax=ax, x="device", color="C3", ls="", marker="o", label="Device Psat")
+    ysatdev = psatdev.plot.line(
+        ax=ax,
+        x="device",
+        color="C3",
+        ls="",
+        marker="o",
+        label="Device Psat",
+    )
 
     # Format
     ax.xaxis.set_tick_params(**xtick_params)

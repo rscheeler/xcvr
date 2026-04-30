@@ -1,22 +1,23 @@
-"""
-Module for symbols used in block diagrams.
-"""
+"""Module for symbols used in block diagrams."""
+
+from typing import Any
 
 import schemdraw
 import schemdraw.elements
 
 
-class Symbol(object):
+class Symbol:
     """
-    Symbol container for the schemdraw Element object. The container delays the object instance creation until the block diagram is requested.
+    Symbol container for the schemdraw Element object. The container delays the object instance
+    creation until the block diagram is requested.
     """
 
-    def __init__(self, element: schemdraw.elements.Element, *args, **kwargs):
+    def __init__(self, element: schemdraw.elements.Element, *args: Any, **kwargs: Any) -> None:
         self.element = element
         self.args = args
         self.kwargs = kwargs
 
-    def __call__(self, *args, **kwargs) -> schemdraw.elements.Element:
+    def __call__(self, *args: Any, **kwargs: Any) -> schemdraw.elements.Element:
         args = list(args) + list(self.args)
         kwargs = {**kwargs, **self.kwargs}
         return self.element(*args, **kwargs)
@@ -24,7 +25,7 @@ class Symbol(object):
 
 class Attenuator(schemdraw.dsp.Square):
     """
-    Box with a rotated resistor in it
+    Box with a rotated resistor in it.
 
         Anchors:
         * N
@@ -33,7 +34,7 @@ class Attenuator(schemdraw.dsp.Square):
         * W
     """
 
-    def __init__(self, *d, **kwargs) -> None:
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*d, **kwargs)
         scale = 0.8
         resheight = 0.25 * scale  # Resistor height
@@ -57,7 +58,7 @@ class Attenuator(schemdraw.dsp.Square):
 
 class Coupler(schemdraw.dsp.Square):
     """
-    Box with a rotated resistor in it
+    Box with a rotated resistor in it.
 
         Anchors:
         * N
@@ -66,7 +67,7 @@ class Coupler(schemdraw.dsp.Square):
         * W
     """
 
-    def __init__(self, *d, **kwargs) -> None:
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*d, **kwargs)
         thru = [(0, 0.4), (1, 0.4)]
         self.segments.append(schemdraw.segments.Segment(thru))
@@ -79,9 +80,9 @@ class Coupler(schemdraw.dsp.Square):
 
 
 class Port(schemdraw.elements.Element):
-    """Port"""
+    """Port."""
 
-    def __init__(self, *d, **kwargs):
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*d, **kwargs)
         lead = 0.6
         h = 0.5
@@ -97,8 +98,8 @@ class Port(schemdraw.elements.Element):
                     (w, lead + h + flat),
                     (w, lead + h),
                     (0, lead),
-                ]
-            )
+                ],
+            ),
         )
         self.params["drop"] = (0, 0)
         self.params["theta"] = 0
@@ -108,9 +109,9 @@ class Port(schemdraw.elements.Element):
 
 
 class Line(schemdraw.elements.Element2Term):
-    """Box like resistor"""
+    """Box like resistor."""
 
-    def __init__(self, *d, **kwargs):
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*d, **kwargs)
 
         resheight = 0.4  # Resistor height
@@ -126,6 +127,6 @@ class Line(schemdraw.elements.Element2Term):
                     (0, 0),
                     schemdraw.elements.elements.gap,
                     (reswidth * 6, 0),
-                ]
-            )
+                ],
+            ),
         )
