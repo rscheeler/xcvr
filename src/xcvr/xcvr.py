@@ -2,7 +2,7 @@
 
 import base64
 from collections import Counter
-from copy import copy
+from copy import copy, deepcopy
 from typing import Optional, Union
 
 import markdown
@@ -70,15 +70,14 @@ class Device:
 
     @property
     def network(self) -> Network:
-        """
-        Signal scattering parameter data in a skrf.Network object format.
-        """
+        """Signal scattering parameter data in a skrf.Network object format."""
         return self._network
 
     @property
     def noise_network(self) -> Network:
         """
-        Network object data in a skrf.Network object format representing how noise is treated. This will differ for things like combiners.
+        Network object data in a skrf.Network object format representing how noise is treated.
+        This will differ for things like combiners.
         """
         if self._noise_network is None:
             self._noise_network = copy(self.network)
@@ -86,38 +85,32 @@ class Device:
 
     @property
     def s_mag_da(self) -> xr.DataArray:
-        """
-        Scattering parameter magnitude
-        """
+        """Scattering parameter magnitude."""
         da = self._add_coords(net2da(self.network))
         return da
 
     @property
     def noise_s_mag_da(self) -> xr.DataArray:
-        """
-        Scattering parameter magnitude
-        """
+        """Scattering parameter magnitude."""
         da = self._add_coords(net2da(self.noise_network))
         return da
 
     @property
     def gain(self) -> xr.DataArray:
-        """
-        Gain (S21) of the device.
-        """
+        """Gain (S21) of the device."""
         return self.s_mag_da.sel(out_port=1, in_port=0)
 
     @property
     def noise_gain(self) -> xr.DataArray:
-        """
-        Gain (S21) for noise of the device. This will differ for a combiner as noise will not add coherently.
+        """Gain (S21) for noise of the device.
+        This will differ for a combiner as noise will not add coherently.
         """
         return self.noise_s_mag_da.sel(out_port=1, in_port=0)
 
     @property
     def nf(self) -> xr.DataArray:
-        """
-        Device noise figure. If a passive device where nf has not been specified it will take the gain.
+        """Device noise figure.
+        If a passive device where nf has not been specified it will take the gain.
         """
         # If not specified get noise gain
         if self._nf is None:
@@ -130,18 +123,16 @@ class Device:
 
     @property
     def p1db(self) -> xr.DataArray:
-        """
-        Output referred 1 dB compression point.
-        """
+        """Output referred 1 dB compression point."""
         if self._p1db is None:
-            self._p1db = xr.full_like(self.gain, np.inf * ureg.dBm)
+            self._p1db = xr.full_like(self.gain, np.inf) * ureg.dBm
         self._p1db = self._add_coords(self._p1db)
         return self._p1db
 
     @property
     def psat(self) -> xr.DataArray:
-        """
-        Output referred saturated power level. If not specified, default is 1 dB higher than the P1dB compression point.
+        """Output referred saturated power level.
+        If not specified, default is 1 dB higher than the P1dB compression point.
         """
         if self._psat is None:
             psat = self.p1db * (1 * ureg.dB)
@@ -152,34 +143,26 @@ class Device:
 
     @property
     def oip3(self) -> xr.DataArray:
-        """
-        Output referred third order intercept point.
-        """
+        """Output referred third order intercept point."""
         if self._oip3 is None:
-            self._oip3 = xr.full_like(self.gain, np.inf * ureg.dBm)
+            self._oip3 = xr.full_like(self.gain, np.inf) * ureg.dBm
         self._oip3 = self._add_coords(self._oip3)
         return self._oip3
 
     @property
     def iip3(self) -> xr.DataArray:
-        """
-        Input referred third order intercept point.
-        """
+        """Input referred third order intercept point."""
         iip3 = self.oip3 / self.gain
         iip3.data = iip3.data.to("dBm")
         return iip3
 
     @property
     def noise_temperature(self) -> Quantity:
-        """
-        Equivalent input noise temperature.
-        """
+        """Equivalent input noise temperature."""
         return nf2temp(self.nf, self.t0)
 
     def interpolate(self, frequency) -> None:
-        """
-        Interpolate self by interpolating the network objects
-        """
+        """Interpolate self by interpolating the network objects."""
         # Convert frequency to hz to ensure units are correct
         frequency = frequency.copy()
         if isinstance(frequency.data, Quantity):
@@ -208,27 +191,26 @@ class Device:
             ia = f"_{ia}"
             attr = self.__getattribute__(ia)
             if isinstance(attr, Quantity):
-                attr = xr.full_like(self.gain, attr)
+                attr = xr.full_like(self.gain, attr.magnitude) * attr.units
             elif isinstance(attr, xr.DataArray):
-                units = attr.data.units
-                attr = xrnan2inf(
-                    attr.interp(frequency=frequency, kwargs={"fill_value": "extrapolate"}),
-                )
-                attr.data = attr.data * units
+                if isinstance(attr.data, Quantity):
+                    units = attr.data.units
+                    attr.data = attr.data.magnitude
+                    attr = attr.interp(frequency=frequency, kwargs={"fill_value": "extrapolate"})
+                    attr.data = attr.data * units
+                else:
+                    attr = attr.interp(frequency=frequency, kwargs={"fill_value": "extrapolate"})
+                attr = xrnan2inf(attr)
             self.__setattr__(ia, attr)
 
     def _add_coords(self, da: xr.DataArray) -> xr.DataArray:
-        """
-        Add device, manufacturer, and pn as coords to DataArray.
-        """
-        dcs = dict(device=self.name, manufacturer=self.manufacturer, pn=self.pn)
+        """Add device, manufacturer, and pn as coords to DataArray."""
+        dcs = {"device": self.name, "manufacturer": self.manufacturer, "pn": self.pn}
         da = da.assign_coords(**dcs)
         return da
 
     def __repr__(self) -> str:
-        """
-        Device preview
-        """
+        """Device preview."""
         tab_props = ["Gain", "NF", "P1dB", "Psat", "OIP3", "IIP3"]
         encoded_sym = base64.b64encode(self.symbol()._repr_png_()).decode("utf-8")
         emb_sym = f"<img src='data:image/png;base64,{encoded_sym}'>"
@@ -250,9 +232,7 @@ class Device:
 
 
 class System:
-    """
-    Container of devices and systems to cascade.
-    """
+    """Container of devices and systems to cascade."""
 
     def __init__(
         self,
@@ -282,20 +262,25 @@ class System:
         self.t0 = t0
 
     def get_device_attr(self, attr) -> xr.DataArray:
-        """
-        Pulls attribute from each device and returns a DataArray
-        """
+        """Pulls attribute from each device and returns a DataArray."""
         attrlist = [d.__getattribute__(attr) for d in self.devices]
-        attr = xr.concat(attrlist, "device")
+        attr = xr.concat(
+            attrlist,
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         return attr
 
     @property
     def devices(self) -> list[Device]:
         """
-        List of devices. Interpolates each device so all the frequencies are the same, also need to deal with Systems vs. Devices differently.
+        List of devices. Interpolates each device so all the frequencies are the same, also need
+        to deal with Systems vs. Devices differently.
         """
         # Copy items in devices list
-        dvs = [copy(d) for d in self._devices]
+        dvs = [deepcopy(d) for d in self._devices]
 
         # Create a device for the subsystem or grab the individual
         dlist = []
@@ -312,7 +297,13 @@ class System:
                 raise ValueError(f"{dv} not a valid input.")
 
         # Get the union of frequencies by getting the gain frequency dimension
-        fs = xr.concat([d.gain.frequency for d in dlist], "device")
+        fs = xr.concat(
+            [d.gain.frequency for d in dlist],
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         fs = np.unique(fs)
         # Drop nans
         fs = fs[np.logical_not(np.isnan(fs))]
@@ -327,7 +318,8 @@ class System:
     @property
     def expand(self) -> bool:
         """
-        Whether to expand the system to show the individual components in a higher level system.
+        Whether to expand the system to show the individual
+        components in a higher level system.
         """
         return self._expand
 
@@ -338,9 +330,7 @@ class System:
 
     @property
     def as_device(self) -> Device:
-        """
-        Return self as a Device.
-        """
+        """Return self as a Device."""
         device = Device(
             self.name,
             self.manufacturer,
@@ -357,9 +347,7 @@ class System:
         return device
 
     def _update_designators(self, devices: list[Device]) -> list[Device]:
-        """
-        Update designators to ensure they are unique.
-        """
+        """Update designators to ensure they are unique."""
         # Check for duplicates in the name
         namecounts = dict(Counter([d.name for d in devices]))
         duplicates = {k: v for k, v in namecounts.items() if v > 1}
@@ -374,9 +362,7 @@ class System:
 
     @property
     def networks(self) -> list[Network]:
-        """
-        List of Network objects for each device in the system.
-        """
+        """List of Network objects for each device in the system."""
         nets = [d.network for d in self.devices]
         return nets
 
@@ -391,17 +377,13 @@ class System:
 
     @property
     def s_mag_da(self) -> xr.DataArray:
-        """
-        Scattering parameter magnitude
-        """
+        """Scattering parameter magnitude."""
         da = self._add_coords(net2da(self.network))
         return da
 
     @property
     def gain(self) -> xr.DataArray:
-        """
-        Gain (S21) of the system.
-        """
+        """Gain (S21) of the system."""
         gain = self.s_mag_da.sel(out_port=1, in_port=0)
         gain = gain.drop_vars(["in_port", "out_port"])
         gain.attrs = {
@@ -412,9 +394,7 @@ class System:
 
     @property
     def vsup(self) -> xr.DataArray:
-        """
-        Device supply voltage.
-        """
+        """Device supply voltage."""
         vsup = xr.DataArray(
             [d.vsup.to("volt").magnitude for d in self.devices] * ureg.volt,
             dims=("device",),
@@ -424,9 +404,7 @@ class System:
 
     @property
     def isup(self) -> xr.DataArray:
-        """
-        Device supply current.
-        """
+        """Device supply current."""
         isup = xr.DataArray(
             [d.isup.to("mA").magnitude for d in self.devices] * ureg.mA,
             dims=("device",),
@@ -436,13 +414,11 @@ class System:
 
     @property
     def pdiss(self) -> xr.DataArray:
-        """
-        Total power dissipation.
-        """
+        """Total power dissipation."""
         pdiss = xr.DataArray(
             [d.pdiss.to("mW").magnitude for d in self.devices] * ureg.mW,
             dims=("device",),
-            coords=dict(device=[d.name for d in self.devices]),
+            coords={"device": [d.name for d in self.devices]},
         )
         return pdiss
 
@@ -471,39 +447,36 @@ class System:
 
     @property
     def cascaded_gain(self) -> xr.DataArray:
-        """
-        Returns the cumulative cascaded gain along the system.
-        """
+        """Returns the cumulative cascaded gain along the system."""
         cg = self.get_device_attr("gain").cumprod("device")
         cg.data = cg.data.to("dB")
         cg.attrs = {
             **cg.attrs,
-            **dict(name="Gain", long_name="Gain", units="dB", description="Gain"),
+            "name": "Gain",
+            "long_name": "Gain",
+            "units": "dB",
+            "description": "Gain",
         }
         return cg
 
     @property
     def cascaded_noise_gain(self) -> xr.DataArray:
-        """
-        Returns the cumulative cascaded noise gain along the system.
-        """
+        """Returns the cumulative cascaded noise gain along the system."""
         cg = self.get_device_attr("noise_gain").cumprod("device")
         cg.data = cg.data.to("dB")
         cg.attrs = {
             **cg.attrs,
-            **dict(
-                name="Noise Gain",
-                long_name="Noise Gain",
-                units="dB",
-                description="Noise Gain",
-            ),
+            "name": "Noise Gain",
+            "long_name": "Noise Gain",
+            "units": "dB",
+            "description": "Noise Gain",
         }
         return cg
 
     @property
     def cascaded_noise_temperature(self) -> xr.DataArray:
-        """
-        Returns the cumulative cascaded equivalent input temperature along the system.
+        """Returns the cumulative cascaded equivalent input temperature
+        along the system.
         """
         # Get noise gain data
         cng = self.cascaded_noise_gain
@@ -530,9 +503,7 @@ class System:
 
     @property
     def cascaded_nf(self) -> xr.DataArray:
-        """
-        Cascaded noise figure through the system
-        """
+        """Cascaded noise figure through the system."""
         nf = temp2nf(self.cascaded_noise_temperature, self.t0)
         nf.data = nf.data.to("dB")
         nf.attrs = {
@@ -576,7 +547,13 @@ class System:
             cp1db.append(cp1dbn)
 
         # Concatentate into a single DataArray
-        cp1db = xr.concat(cp1db, "device")
+        cp1db = xr.concat(
+            cp1db,
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         # Convert data units to dBm
         cp1db.data = cp1db.data.to("dBm")
         # Add in standard attrs
@@ -593,9 +570,7 @@ class System:
 
     @property
     def cascaded_psat(self) -> xr.DataArray:
-        """
-        Cascaded saturated power point through the system
-        """
+        """Cascaded saturated power point through the system."""
         # Initialize
         cpsat = [self.devices[0].psat]
         # Loop over devices
@@ -613,7 +588,13 @@ class System:
             cpsat.append(psat)
 
         # Create a DataArray
-        cpsat = xr.concat(cpsat, "device")
+        cpsat = xr.concat(
+            cpsat,
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         # Convert units
         cpsat.data = cpsat.data.to("dBm")
         # Set attrs
@@ -630,9 +611,7 @@ class System:
 
     @property
     def cascaded_oip3(self) -> xr.DataArray:
-        """
-        Cascaded output referred third order intercept point (OIP3) through the system
-        """
+        """Cascaded output referred third order intercept point (OIP3) through the system."""
         # Get gain and oip3
         gain = self.get_device_attr("gain")
         oip3 = self.get_device_attr("oip3")
@@ -655,7 +634,13 @@ class System:
             coip3.append(coip3n)
 
         # Concatentate into a single DataArray
-        coip3 = xr.concat(coip3, "device")
+        coip3 = xr.concat(
+            coip3,
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         # Convert data units to dBm
         coip3.data = coip3.data.to("dBm")
         # Add in standard attrs
@@ -674,7 +659,7 @@ class System:
     def cascaded_iip3(self) -> xr.DataArray:
         """
         Cascaded input referred third order intercept point (IIP3) through the system
-        TODO: Verify
+        TODO: Verify.
         """
         dgain = self.get_device_attr("gain")
         ciip3 = [self.oip3.drop_vars(["device", "manufacturer", "pn"]) / dgain.isel(device=-1)]
@@ -683,7 +668,13 @@ class System:
             ciip3.append(
                 ciip3[-1].drop_vars(["device", "manufacturer", "pn"]) / dgain.isel(device=i),
             )
-        ciip3 = xr.concat(ciip3[::-1], "device")
+        ciip3 = xr.concat(
+            ciip3[::-1],
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         ciip3.data = ciip3.data.to("dBm")
 
         return ciip3
@@ -691,48 +682,36 @@ class System:
     # Total System Properties
     @property
     def nf(self) -> xr.DataArray:
-        """
-        Total system noise figure (NF).
-        """
+        """Total system noise figure (NF)."""
         nf = self._get_sys_prop("nf", "Noise Figure", "dB", "System Noise Figure")
         return nf
 
     @property
     def noise_temperature(self) -> xr.DataArray:
-        """
-        Equivalent input noise temperature.
-        """
+        """Equivalent input noise temperature."""
         return nf2temp(self.nf, self.t0)
 
     @property
     def noise_gain(self) -> xr.DataArray:
-        """
-        Total system noise gain.
-        """
+        """Total system noise gain."""
         ng = self._get_sys_prop("noise_gain", "Noise Gain", "dB", "System Noise Gain")
         return ng
 
     @property
     def p1db(self) -> xr.DataArray:
-        """
-        Total system output referred 1 dB compression point (P1dB).
-        """
+        """Total system output referred 1 dB compression point (P1dB)."""
         p1db = self._get_sys_prop("p1db", "P1dB", "dBm", "Output referred 1dB compression point")
         return p1db
 
     @property
     def psat(self) -> xr.DataArray:
-        """
-        Total system output referred saturated power point (Psat).
-        """
+        """Total system output referred saturated power point (Psat)."""
         psat = self._get_sys_prop("psat", "Psat", "dBm", "Output referred saturated power point")
         return psat
 
     @property
     def oip3(self) -> xr.DataArray:
-        """
-        Total system output referred third order intercept point (OIP3).
-        """
+        """Total system output referred third order intercept point (OIP3)."""
         oip3 = self._get_sys_prop(
             "oip3",
             "OIP3",
@@ -745,7 +724,7 @@ class System:
     def iip3(self) -> xr.DataArray:
         """
         Total system input referred third order intercept point (IIP3).
-        TODO: Verify
+        TODO: Verify.
         """
         iip3 = self.oip3 / self.gain
         iip3.data = iip3.data.to("dBm")
@@ -759,9 +738,7 @@ class System:
 
     @property
     def input_p1db(self) -> xr.DataArray:
-        """
-        Total system input referred 1dB compression point.
-        """
+        """Total system input referred 1dB compression point."""
         ip1db = self.p1db / self.cascaded_gain[dict(device=-1)]
         ip1db.data = ip1db.data.to("dBm")
         ip1db.attrs = {
@@ -878,13 +855,11 @@ class System:
         return xr.Dataset({**dattrs, **casc_attrs})
 
     def get_dataframe(self, input_power: Quantity | None = None, **kwargs) -> DataFrame:
-        """
-        Return the system as an pandas DataFrame.
-        """
+        """Return the system as an pandas DataFrame."""
         # Get dataset
         ds = self.get_dataset(input_power=input_power, **kwargs)
-        # Convert to a pandas dataframe
-        df = ds.to_dataframe()
+        # Reset index to turn 'device' and 'frequency' into regular columns
+        df = ds.to_dataframe().reset_index()
         # Format dataframe
         drop_cols = [
             "noise_gain",
@@ -900,7 +875,7 @@ class System:
         ]
         signal_present = input_power is not None
         df = (
-            df.drop(columns=drop_cols)
+            df.drop(columns=drop_cols, errors="ignore")  # Added errors='ignore' for safety
             .round(2)
             .style.pipe(format_cascaded_table, self.name, signal_present=signal_present)
         )
@@ -940,7 +915,13 @@ class System:
             outpwrs.append(outpwr)
 
         # Create a single DataArray, excluding the first record which is just the input signal
-        outpwr = xr.concat(outpwrs[1:], "device")
+        outpwr = xr.concat(
+            outpwrs[1:],
+            "device",
+            join="outer",
+            coords="minimal",
+            compat="override",
+        )
         # Convert the units
         outpwr.data = outpwr.data.to(units)
         # Set attrs
@@ -996,17 +977,23 @@ class System:
         return markdown.markdown(self.__repr__(), extensions=["markdown.extensions.tables"])
 
 
-def highlight_compression(s: DataFrame) -> str:
-    """
-    Highlight DataFrame table cells if the signal has compressed. Formats cell background and text using
-    style css.
-    """
+def highlight_compression(s: DataFrame) -> list[str]:
     highlight = "background-color: #ffffb3;"
-    if s[0] == s[2]:
-        return ["color:red;" + highlight, "", highlight]
-    if s[0] >= s[1]:
-        return ["color:red;" + highlight, highlight, ""]
-    return [""] * 3
+    # Use explicit names instead of s[0], s[1], s[2]
+    sig = s["signal_level"]
+    p1 = s["cascaded_p1db"]
+    psat = s["cascaded_psat"]
+
+    styles = [""] * 3  # for [signal_level, cascaded_p1db, cascaded_psat]
+
+    if sig >= psat:
+        styles[0] = "color:red;" + highlight
+        styles[2] = highlight
+    elif sig >= p1:
+        styles[0] = "color:red;" + highlight
+        styles[1] = highlight
+
+    return styles
 
 
 def format_cascaded_table(styler: Styler, caption: str, signal_present: bool = True) -> Styler:
