@@ -1,4 +1,4 @@
-# :rocket: xcvr
+# 📻 xcvr
 
 Python library for calculating cascaded performance metrics in RF transceivers.
 

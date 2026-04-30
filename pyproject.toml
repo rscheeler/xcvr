@@ -7,16 +7,27 @@ authors = [{ name = "Rob Scheeler", email = "email@example.com" }]
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["python"]
-requires-python = ">=3.13,<4"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 dependencies = [
+    "xrench",
+    "pint",
+    "xarray",
+    "numpy",
+    "schemdraw",
+    "scikit-rf",
+    "matplotlib",
+    "pandas",
+    "Jinja2",
+    "markdown"
 ]
 
 [dependency-groups]
@@ -31,6 +42,7 @@ dev = [
     "legacy-cgi>=2.6.3",
     "setuptools>=80.9.0",
     "pre-commit>=4.2.0",
+    "ipykernel",
 ]
 
 [project.urls]
