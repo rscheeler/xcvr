@@ -40,7 +40,11 @@ def net2da(network: skrf.Network) -> DataArray:
 def xrnan2inf(x: DataArray) -> DataArray:
     """Converts nans to infs. Occurs when interpolating data with infs for p1db, psat, and ip3."""
     if isinstance(x.data, Quantity):
-        xinf = xr.where(np.isnan(x), np.inf * x.data.units, x)
+        units = x.data.units
+        xinf = xr.where(np.isnan(x), np.inf * units, x)
+        # xr.where strips pint units from the result - reattach if needed
+        if not isinstance(xinf.data, Quantity):
+            xinf.data = xinf.data * units
     else:
         xinf = xr.where(np.isnan(x), np.inf, x)
     return xinf

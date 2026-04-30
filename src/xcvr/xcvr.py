@@ -1,6 +1,7 @@
 """Main module"""
 
 import base64
+import warnings
 from collections import Counter
 from copy import copy, deepcopy
 from typing import Optional, Union
@@ -12,7 +13,7 @@ import skrf.network
 import xarray as xr
 from pandas import DataFrame
 from pandas.io.formats.style import Styler
-from pint import Quantity
+from pint import Quantity, UnitStrippedWarning
 from schemdraw import dsp
 from skrf import Network
 from xrench.units import ureg
@@ -20,6 +21,12 @@ from xrench.units import ureg
 from .conversions import nf2temp, temp2nf
 from .symbols import Symbol
 from .utils import net2da, xrnan2inf
+
+# Suppress pint's warning when xr.where/assignment strips units from Quantity arrays.
+warnings.filterwarnings("ignore", category=UnitStrippedWarning)
+# Suppress scipy RuntimeWarning from interpolating through inf values (p1db, psat, oip3
+# default to inf for passive devices). Values are correctly restored by xrnan2inf afterward.
+warnings.filterwarnings("ignore", message="invalid value encountered", category=RuntimeWarning)
 
 
 class Device:
@@ -166,7 +173,7 @@ class Device:
         # Convert frequency to hz to ensure units are correct
         frequency = frequency.copy()
         if isinstance(frequency.data, Quantity):
-            frequency.data = frequency.data.to("Hz")
+            frequency.data = frequency.data.to("Hz").magnitude
 
         # Determine kind of interpolation, if only a single frequency kind should be linear
         intrpkind = "cubic"
@@ -504,8 +511,9 @@ class System:
     @property
     def cascaded_nf(self) -> xr.DataArray:
         """Cascaded noise figure through the system."""
-        nf = temp2nf(self.cascaded_noise_temperature, self.t0)
-        nf.data = nf.data.to("dB")
+        with np.errstate(invalid="ignore", divide="ignore"):
+            nf = temp2nf(self.cascaded_noise_temperature, self.t0)
+            nf.data = nf.data.to("dB")
         nf.attrs = {
             **nf.attrs,
             **dict(
@@ -578,7 +586,10 @@ class System:
             # Get psat[-1]*gain
             psat = d.gain * cpsat[-1]
             # Interpolate
-            dpsat = d.psat.interp(frequency=psat.frequency, kwargs={"fill_value": "extrapolate"})
+            dpsat = d.psat.interp(
+                frequency=psat.frequency,
+                kwargs={"fill_value": "extrapolate"},
+            )
             dpsat = xrnan2inf(dpsat)
             # Set Units
             dpsat.data = dpsat.data * d.psat.data.units
@@ -905,7 +916,10 @@ class System:
             # Set units
             outpwr.data = outpwr.data.to(units)
             # Get saturated power
-            dpsat = d.psat.interp(frequency=outpwr.frequency, kwargs={"fill_value": "extrapolate"})
+            dpsat = d.psat.interp(
+                frequency=outpwr.frequency,
+                kwargs={"fill_value": "extrapolate"},
+            )
             dpsat = xrnan2inf(dpsat)
             dpsat.data = dpsat.data * d.psat.data.units
 

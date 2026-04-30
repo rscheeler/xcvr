@@ -4,8 +4,10 @@ from typing import Union
 
 from pint import Quantity
 from xarray import DataArray
+from xrench.xrutils import wraps_xr
 
 
+@wraps_xr("kelvin", ["dimensionless", "kelvin"])
 def nf2temp(nf: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:
     """
     Converts noise figure to noise temperature.
@@ -25,6 +27,7 @@ def nf2temp(nf: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:
     return t0 * (nf - 1)
 
 
+@wraps_xr("dimensionless", ["kelvin", "kelvin"])
 def temp2nf(temp: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:
     """
     Converts equivalent input noise temperature to noise figure.
