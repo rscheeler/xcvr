@@ -3,7 +3,7 @@
 name = "xcvr"
 version = "0.1.0"
 description = "Python library for calculating cascaded performance metrics in RF transceivers."
-authors = [{ name = "Rob Scheeler", email = "email@example.com" }]
+authors = [{ name = "Rob Scheeler"}]
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["python"]
