@@ -28,6 +28,8 @@ warnings.filterwarnings("ignore", category=UnitStrippedWarning)
 # default to inf for passive devices). Values are correctly restored by xrnan2inf afterward.
 warnings.filterwarnings("ignore", message="invalid value encountered", category=RuntimeWarning)
 
+_xr_concat_kwargs = {"join": "outer", "coords": "all", "compat": "override"}
+
 
 class Device:
     """Device object. Lowest level container of performance."""
@@ -177,7 +179,7 @@ class Device:
 
         # Determine kind of interpolation, if only a single frequency kind should be linear
         intrpkind = "cubic"
-        if frequency.size == 1 or self._network.f.size == 1:
+        if frequency.size < 4 or self._network.f.size < 4:
             intrpkind = "linear"
         # Interpolate the network objects
         self._network = self._network.interpolate(
@@ -253,6 +255,7 @@ class System:
     ) -> None:
         # Store attributes
         self._devices = devices
+        self._devices_cache: list[Device] | None = None
         self.name = name
         self.manufacturer = manufacturer
         self.pn = pn
@@ -274,16 +277,20 @@ class System:
         attr = xr.concat(
             attrlist,
             "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
+            **_xr_concat_kwargs,
         )
         return attr
 
     @property
     def devices(self) -> list[Device]:
+        """List of devices."""
+        if self._devices_cache is None:
+            self._devices_cache = self._build_devices()
+        return self._devices_cache
+
+    def _build_devices(self) -> list[Device]:
         """
-        List of devices. Interpolates each device so all the frequencies are the same, also need
+        Builds list of devices. Interpolates each device so all the frequencies are the same, also need
         to deal with Systems vs. Devices differently.
         """
         # Copy items in devices list
@@ -307,9 +314,7 @@ class System:
         fs = xr.concat(
             [d.gain.frequency for d in dlist],
             "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
+            **_xr_concat_kwargs,
         )
         fs = np.unique(fs)
         # Drop nans
@@ -380,6 +385,7 @@ class System:
         to perform the cascade.
         """
         net = skrf.network.cascade_list(self.networks)
+        net.name = self.name
         return net
 
     @property
@@ -525,6 +531,62 @@ class System:
         }
         return nf
 
+    def _cascade_intercept(self, attr: str, description: str) -> xr.DataArray:
+        r"""
+        Cascaded intercept point.
+
+        The calculation follows the 'sum of reciprocals' method, assuming
+        the worst-case scenario where intermodulation products add in-phase.
+
+        .. math::
+
+            \\frac{1}{OIP_{3,sys}} = \\sum_{i=1}^{n} \\left( \\frac{1}{OIP_{3,i} \\cdot \\prod_{j=i+1}^{n} G_j} \\right)
+
+        Where:
+        * :math:`OIP_{3,i}` is the linear OIP3 of the :math:`i`-th stage.
+        * :math:`G_j` is the linear gain of the :math:`j`-th stage.
+        """
+        # Get gain and attr
+        gain = self.get_device_attr("gain")
+        inp = self.get_device_attr(attr)
+
+        # Initialize
+        cinp = [inp[dict(device=0)]]
+        # Loop and compute cascade using the same formula as cascaded oip3
+        for i in range(1, inp.device.size):
+            # Calculate for current stage
+            cinpn = 1 / (
+                1 / (cinp[-1].data * gain[dict(device=i)].data) + 1 / inp[dict(device=i)].data
+            )
+            # Create DataArray
+            cinpn = xr.DataArray(
+                cinpn,
+                dims=inp[dict(device=i)].dims,
+                coords=inp[dict(device=i)].coords,
+            )
+            # Append
+            cinp.append(cinpn)
+
+        # Concatentate into a single DataArray
+        cinp = xr.concat(
+            cinp,
+            "device",
+            **_xr_concat_kwargs,
+        )
+        # Convert data units to dBm
+        cinp.data = cinp.data.to("dBm")
+        # Add in standard attrs
+        cinp.attrs = {
+            **cinp.attrs,
+            **dict(
+                name=attr.upper(),
+                long_name=attr.upper(),
+                units="dBm",
+                description=description,
+            ),
+        }
+        return cinp
+
     @property
     def cascaded_p1db(self) -> xr.DataArray:
         """
@@ -533,47 +595,8 @@ class System:
         Method is same as cascading the third order intercept point.
         TODO: Add reference.
         """
-        # Get gain and p1dbs
-        gain = self.get_device_attr("gain")
-        p1db = self.get_device_attr("p1db")
+        cp1db = self._cascade_intercept("p1db", "Output referred 1dB compression point")
 
-        # Initialize
-        cp1db = [p1db[dict(device=0)]]
-        # Loop and compute cascade using the same formula as cascaded oip3
-        for i in range(1, p1db.device.size):
-            # Calculate for current stage
-            cp1dbn = 1 / (
-                1 / (cp1db[-1].data * gain[dict(device=i)].data) + 1 / p1db[dict(device=i)].data
-            )
-            # Create DataArray
-            cp1dbn = xr.DataArray(
-                cp1dbn,
-                dims=p1db[dict(device=i)].dims,
-                coords=p1db[dict(device=i)].coords,
-            )
-            # Append
-            cp1db.append(cp1dbn)
-
-        # Concatentate into a single DataArray
-        cp1db = xr.concat(
-            cp1db,
-            "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
-        )
-        # Convert data units to dBm
-        cp1db.data = cp1db.data.to("dBm")
-        # Add in standard attrs
-        cp1db.attrs = {
-            **cp1db.attrs,
-            **dict(
-                name="P1dB",
-                long_name="P1dB",
-                units="dBm",
-                description="Output referred 1dB compression point",
-            ),
-        }
         return cp1db
 
     @property
@@ -602,9 +625,7 @@ class System:
         cpsat = xr.concat(
             cpsat,
             "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
+            **_xr_concat_kwargs,
         )
         # Convert units
         cpsat.data = cpsat.data.to("dBm")
@@ -623,47 +644,8 @@ class System:
     @property
     def cascaded_oip3(self) -> xr.DataArray:
         """Cascaded output referred third order intercept point (OIP3) through the system."""
-        # Get gain and oip3
-        gain = self.get_device_attr("gain")
-        oip3 = self.get_device_attr("oip3")
+        coip3 = self._cascade_intercept("oip3", "Output referred third order intercept point")
 
-        # Initialize
-        coip3 = [oip3[dict(device=0)]]
-        # Loop and compute cascade using the same formula as cascaded oip3
-        for i in range(1, oip3.device.size):
-            # Calculate for current stage
-            coip3n = 1 / (
-                1 / (coip3[-1].data * gain[dict(device=i)].data) + 1 / oip3[dict(device=i)].data
-            )
-            # Create DataArray
-            coip3n = xr.DataArray(
-                coip3n,
-                dims=oip3[dict(device=i)].dims,
-                coords=oip3[dict(device=i)].coords,
-            )
-            # Append
-            coip3.append(coip3n)
-
-        # Concatentate into a single DataArray
-        coip3 = xr.concat(
-            coip3,
-            "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
-        )
-        # Convert data units to dBm
-        coip3.data = coip3.data.to("dBm")
-        # Add in standard attrs
-        coip3.attrs = {
-            **coip3.attrs,
-            **dict(
-                name="OIP3",
-                long_name="OIP3",
-                units="dBm",
-                description="Output referred third order intercept point",
-            ),
-        }
         return coip3
 
     @property
@@ -682,12 +664,20 @@ class System:
         ciip3 = xr.concat(
             ciip3[::-1],
             "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
+            **_xr_concat_kwargs,
         )
+        # Convert units to dBm
         ciip3.data = ciip3.data.to("dBm")
-
+        # Add in standard attrs
+        ciip3.attrs = {
+            **ciip3.attrs,
+            **dict(
+                name="IIP3",
+                long_name="IIP3",
+                units="dBm",
+                description="Input referred third order intercept point",
+            ),
+        }
         return ciip3
 
     # Total System Properties
@@ -932,9 +922,7 @@ class System:
         outpwr = xr.concat(
             outpwrs[1:],
             "device",
-            join="outer",
-            coords="minimal",
-            compat="override",
+            **_xr_concat_kwargs,
         )
         # Convert the units
         outpwr.data = outpwr.data.to(units)
@@ -949,7 +937,7 @@ class System:
         # Get cascaded attribute and select the value at the last device
         da = self._add_coords(self.__getattribute__(f"cascaded_{prop}")[dict(device=-1)])
         # Drop input and output vars
-        da = da.drop_vars(["in_port", "out_port"])
+        da = da.drop_vars(["in_port", "out_port"], errors="ignore")
         # Set units
         da.data = da.data.to(unit)
         # Set attributes that are helpful in plotting

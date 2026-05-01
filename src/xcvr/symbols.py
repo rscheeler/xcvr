@@ -4,6 +4,7 @@ from typing import Any
 
 import schemdraw
 import schemdraw.elements
+from schemdraw import dsp
 
 
 class Symbol:
@@ -23,7 +24,7 @@ class Symbol:
         return self.element(*args, **kwargs)
 
 
-class Attenuator(schemdraw.dsp.Square):
+class Attenuator(dsp.Square):
     """
     Box with a rotated resistor in it.
 
@@ -56,7 +57,7 @@ class Attenuator(schemdraw.dsp.Square):
         self.segments.append(schemdraw.segments.Segment(res_segs))
 
 
-class Coupler(schemdraw.dsp.Square):
+class Coupler(dsp.Square):
     """
     Box with a rotated resistor in it.
 

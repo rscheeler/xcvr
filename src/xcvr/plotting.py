@@ -23,7 +23,7 @@ def plot_cascade(
     cp.plot(ax=ax)
     # Format
     ax.xaxis.set_tick_params(**xtick_params)
-    fig.set_figwidth(fig.get_figwidth * 1.5)
+    fig.set_figwidth(fig.get_figwidth() * 1.5)
     # Set Title
     ax.set_title(prop)
     return ax
@@ -32,12 +32,12 @@ def plot_cascade(
 def plot_signal_compression(
     rfsys: System,
     input_pwr: DataArray,
-    xtick_params: dict = dict(rotation=30),
+    xtick_params: dict = {"rotation": 30},
     **kwargs: Any,
 ) -> plt.Axes:
     """Plot signal level and compression through system."""
     # Get signal level and cascaded compression values
-    siglev = rfsys.get_signal_level(input_pwr.sel(**kwargs), **kwargs)
+    siglev = rfsys.get_signal_level(input_pwr.sel(**kwargs)).sel(**kwargs)
     p1db = rfsys.cascaded_p1db.sel(**kwargs)
     psat = rfsys.cascaded_psat.sel(**kwargs)
     psatdev = rfsys.get_device_attr("psat").sel(**kwargs)
@@ -59,10 +59,11 @@ def plot_signal_compression(
         marker="o",
         label="Device Psat",
     )
-
+    # Add label
+    ax.set_ylabel("Power [dBm]")
     # Format
     ax.xaxis.set_tick_params(**xtick_params)
-    fig.set_figwidth(fig.get_figwidth * 1.5)
+    fig.set_figwidth(fig.get_figwidth() * 1.5)
     props = dict(boxstyle="round", facecolor="white", alpha=0.8)
     fontsize = 10
     ax.text(
