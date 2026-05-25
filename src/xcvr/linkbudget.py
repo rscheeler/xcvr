@@ -11,7 +11,7 @@ from pint import Quantity
 from xarray import DataArray
 from xrench.units import ureg
 
-from . import ber
+from xcvr import ber
 
 
 def nf2temp(nf: Quantity | DataArray, t0: Quantity) -> Quantity | DataArray:

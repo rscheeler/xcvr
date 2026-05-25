@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from xarray import DataArray
 
-from .xcvr import System
+from xcvr.xcvr import System
 
 
 def plot_cascade(

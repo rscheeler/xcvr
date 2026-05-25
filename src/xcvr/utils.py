@@ -2,11 +2,10 @@ import numpy as np
 import skrf
 import xarray as xr
 from pint import Quantity
-from xarray import DataArray
 from xrench.units import ureg
 
 
-def snp2da(path: str, outport: int, inport: int) -> DataArray:
+def snp2da(path: str, outport: int, inport: int) -> xr.DataArray:
     """Load touchstone data (.sNp) into an xarray DataArray object.
     Uses scikit-rf to load and manipulate data.
     """
@@ -17,27 +16,25 @@ def snp2da(path: str, outport: int, inport: int) -> DataArray:
     s = sfile.s_db[:, outport, inport] * ureg.dB
     # Get frequency data
     fs = sfile.f * ureg(sfile.frequency.unit)
-    # Create DataArray
-    s = DataArray(s, dims=("frequency",), coords=dict(frequency=fs))
-    return s
+    # Return DataArray
+    return xr.DataArray(s, dims=("frequency",), coords={"frequency": fs})
 
 
-def net2da(network: skrf.Network) -> DataArray:
+def net2da(network: skrf.Network) -> xr.DataArray:
     """Convert a skrf.Network object to a DataArray object where the data is magntiude
     in decibels.
     """
     # Get frequency
     fs = network.f * ureg(network.frequency.unit)
-    # Create DataArray
-    sda = DataArray(
+    # Return DataArray
+    return xr.DataArray(
         network.s_db * ureg.dB,
         dims=("frequency", "out_port", "in_port"),
-        coords=dict(frequency=fs, out_port=range(2), in_port=range(2)),
+        coords={"frequency": fs, "out_port": range(2), "in_port": range(2)},
     )
-    return sda
 
 
-def xrnan2inf(x: DataArray) -> DataArray:
+def xrnan2inf(x: xr.DataArray) -> xr.DataArray:
     """Converts nans to infs. Occurs when interpolating data with infs for p1db, psat, and ip3."""
     if isinstance(x.data, Quantity):
         units = x.data.units

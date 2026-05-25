@@ -3,7 +3,7 @@ Convenience model for standard devices.
 Utilizes skrf objects to create the skrf.Network objects.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import schemdraw
 import xarray as xr
@@ -12,8 +12,9 @@ from skrf import Frequency, Network
 from skrf.media import Coaxial, DefinedGammaZ0
 from xrench.units import ureg
 
-from .symbols import Symbol
-from .xcvr import Device
+from xcvr.frequency import MixerMixin
+from xcvr.symbols import Symbol
+from xcvr.xcvr import Device
 
 
 class Constant(Device):
@@ -55,7 +56,7 @@ class Constant(Device):
         if noise_gain is not None:
             kwargs["noise_network"] = dgz.attenuator(noise_gain.to("dB").magnitude, db=True)
 
-        super().__init__(name, manufacturer, pn, net, symbol=symbol, **kwargs)
+        super().__init__(name, manufacturer, pn, net, symbol=symbol, vsup=vsup, isup=isup, **kwargs)
 
 
 class Cable(Device):
@@ -95,3 +96,13 @@ class Cable(Device):
         if "symbol" not in kwargs:
             kwargs["symbol"] = Symbol(schemdraw.elements.cables.Coax, length=2)
         super().__init__(name, manufacturer, pn, cable, **kwargs)
+
+
+class Mixer(MixerMixin, Device):
+    def __init__(self, *args, lo_freq: float, sideband: str = "low", **kwargs):
+        super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)
+
+
+class MixerConstant(MixerMixin, Constant):
+    def __init__(self, *args, lo_freq: float, sideband: str = "low", **kwargs):
+        super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)

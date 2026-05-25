@@ -13,8 +13,8 @@ from schemdraw import elements as elm
 from scipy.optimize import minimize
 from xrench.units import ureg
 
-from . import symbols as sym
-from .xcvr import Device
+from xcvr import symbols as sym
+from xcvr.xcvr import Device
 
 Node = namedtuple("Node", ["x", "y"])
 
