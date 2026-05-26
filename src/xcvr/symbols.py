@@ -59,7 +59,7 @@ class Attenuator(dsp.Square):
 
 class Coupler(dsp.Square):
     """
-    Box with a rotated resistor in it.
+    Directional coupler.
 
         Anchors:
         * N
@@ -78,6 +78,31 @@ class Coupler(dsp.Square):
         self.segments.append(schemdraw.segments.Segment(x1))
         x2 = [(0.15, -0.35), (0.85, 0.35)]
         self.segments.append(schemdraw.segments.Segment(x2))
+
+
+class Splitter(dsp.Square):
+    """
+    Two-way power splitter.
+
+        Anchors:
+        * N
+        * S
+        * E
+        * W
+    """
+
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        super().__init__(*d, **kwargs)
+        start = [(0, 0), (0.35, 0)]
+        self.segments.append(schemdraw.segments.Segment(start))
+        split_up = [(0.35, 0), (0.85, 0.35)]
+        self.segments.append(schemdraw.segments.Segment(split_up))
+        split_down = [(0.35, 0), (0.85, -0.35)]
+        self.segments.append(schemdraw.segments.Segment(split_down))
+        up_end = [(0.85, 0.35), (1, 0.35)]
+        self.segments.append(schemdraw.segments.Segment(up_end))
+        down_end = [(0.85, -0.35), (1, -0.35)]
+        self.segments.append(schemdraw.segments.Segment(down_end))
 
 
 class Port(schemdraw.elements.Element):

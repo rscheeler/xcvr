@@ -792,53 +792,88 @@ class System:
         Returns a block diagram representation of the System using schemdraw elements.
         **kwargs are passed to the schemdraw.Drawing object.
         """
-        # Connect elements
         drwing = schemdraw.Drawing(**kwargs)
-        # Initialize with a dot and open line
         elems = []
-        i = 1
+
         if input_dot:
             elems.append(schemdraw.elements.Dot(radius=0.12, open=True))
-            i += 1
-        # Loop over devices
-        for d in self.devices:
-            # Create element instance
-            elem = d.symbol().label(d.name, "top", ofst=0.2)
-            # Short line on input, but format depends on if it is an antenna
-            if not isinstance(elem, dsp.Antenna):
-                inputline = dsp.Line().length(drwing.unit / 4)
-                elems.append(inputline)
-            else:
-                i -= 1
-            # Add device symbol
-            elems.append(elem)
-            # Short line on output
-            elems.append(dsp.Line().length(drwing.unit / 4))
 
-        # Output dot
+        # A flat iterator of your fully processed devices (which have the updated designators)
+        flat_device_iter = iter(self.devices)
+
+        # Helper function to recursively traverse layers and record bounds
+        def build_diagram_layers(current_system, depth=0) -> list[tuple[int, int, str, int]]:
+            box_boundaries = []
+            start_idx = len(elems)
+
+            for d in current_system._devices:
+                if isinstance(d, System) and d.expand:
+                    # Traverses into the expanded subsystem
+                    nested_boxes = build_diagram_layers(d, depth + 1)
+                    box_boundaries.extend(nested_boxes)
+                else:
+                    # Pull the next processed device from our flat iterator to get the correct name
+                    try:
+                        processed_device = next(flat_device_iter)
+                        display_name = processed_device.name
+                        symbol_callable = processed_device.symbol
+                    except StopIteration:
+                        # Fallback case if the iterator runs dry safely
+                        device_instance = d.as_device if isinstance(d, System) else d
+                        display_name = device_instance.name
+                        symbol_callable = device_instance.symbol
+
+                    if not isinstance(symbol_callable(), dsp.Antenna):
+                        elems.append(dsp.Line().length(drwing.unit / 4))
+
+                    # Use display_name here (which includes the appended digit)
+                    elem = symbol_callable().label(display_name, "top", ofst=0.2)
+                    elems.append(elem)
+                    elems.append(dsp.Line().length(drwing.unit / 4))
+
+            end_idx = len(elems)
+
+            # Record bounds only if it's an expanded system AND not the root level
+            if current_system.expand and depth > 0:
+                actual_start = start_idx + 1 if (start_idx == 1 and input_dot) else start_idx
+                box_boundaries.append((actual_start, end_idx, current_system.name, depth))
+
+            return box_boundaries
+
+        # Gather boundaries containing (start, end, name, depth)
+        all_boxes = build_diagram_layers(self, depth=0)
+
         if output_dot:
             elems.append(dsp.Line().length(drwing.unit / 4))
             elems.append(schemdraw.elements.Dot(radius=0.12, open=True))
 
-        # Add all the elements to the drawing
+        # Add flat schematic elements
         drwing.add_elements(*elems)
 
-        # Add subsystem boxes
-        for d in self._devices:
-            # Handle systems different than devices
-            if isinstance(d, System) and d.expand:
+        # Draw the boxes
+        if all_boxes:
+            max_depth = max(box[3] for box in all_boxes)
+
+            for start, end, name, depth in all_boxes:
+                depth_offset = max_depth - depth
+
+                # Snug horizontal layout
+                padding_x = 0.08 + (depth_offset * 0.12)
+                # Snug vertical layout keeping the bottom tight
+                padding_y = 0.4 + (depth_offset * 0.5)
+                # Float labels cleanly above lines
+                label_offset = 0.1
+
                 drwing += (
                     schemdraw.elements.lines.EncircleBox(
-                        elems[slice(i, i + len(d.devices) * 3 - 1)],
-                        cornerradius=0.3,
-                        padx=0,
-                        pady=1,
+                        elems[start:end],
+                        cornerradius=0.25,
+                        padx=padding_x,
+                        pady=padding_y,
                     )
                     .linestyle(":")
-                    .label(d.name)
+                    .label(name, loc="top", ofst=label_offset)
                 )
-                i += (len(d.devices) - 1) * 3
-            i += 3
 
         return drwing
 

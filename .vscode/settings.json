@@ -5,6 +5,7 @@
   "python.testing.pytestEnabled": true,
   "ruff.configurationPreference": "filesystemFirst",
   "ruff.configuration": "pyproject.toml",
+  "notebook.formatOnSave.enabled": true,
   "[python]": {
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
