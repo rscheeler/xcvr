@@ -8,7 +8,7 @@ from typing import Any
 import schemdraw
 import xarray as xr
 from pint import Quantity
-from skrf import Frequency, Network
+from skrf import Frequency
 from skrf.media import Coaxial, DefinedGammaZ0
 from xrench.units import ureg
 
@@ -40,7 +40,12 @@ class Constant(Device):
         # Generate skrf Frequency object
         frequency = frequency.copy()
         frequency.data = frequency.data.to("Hz")
-        freq = Frequency(frequency.values[0], frequency.values[-1], frequency.values.size, "hz")
+        freq = Frequency(
+            frequency.values[0],
+            frequency.values[-1],
+            frequency.values.size,
+            "hz",
+        )
 
         # Create media and then attenuator from media
         dgz = DefinedGammaZ0(freq, z0=z0)
@@ -54,15 +59,28 @@ class Constant(Device):
 
         # Generate noise gain net if needed
         if noise_gain is not None:
-            kwargs["noise_network"] = dgz.attenuator(noise_gain.to("dB").magnitude, db=True)
+            kwargs["noise_network"] = dgz.attenuator(
+                noise_gain.to("dB").magnitude,
+                db=True,
+            )
 
-        super().__init__(name, manufacturer, pn, net, symbol=symbol, vsup=vsup, isup=isup, **kwargs)
+        super().__init__(
+            name,
+            manufacturer,
+            pn,
+            net,
+            symbol=symbol,
+            vsup=vsup,
+            isup=isup,
+            **kwargs,
+        )
 
 
 class Cable(Device):
     """
     Device for defining a cable in terms of its length.
-    Loss is given by adjusting tan_delta.
+    Wraps skrf.media.Coaxial.
+    Pass kwargs to skrf.media.Coaxial through coaxial_kwargs dict.
     """
 
     def __init__(
@@ -72,22 +90,28 @@ class Cable(Device):
         pn: str,
         frequency: xr.DataArray,
         length: Quantity,
-        tan_delta: float = 0.1,
         end_loss: Quantity = 0.015 * ureg.dB,
         z0: float = 50.0,
+        coaxial_kwargs: dict | None = None,
         **kwargs: Any,
     ) -> None:
         # Generate skrf Frequency object
         frequency = frequency.copy()
         frequency.data = frequency.data.to("Hz")
-        freq = Frequency(frequency.values[0], frequency.values[-1], frequency.values.size, "hz")
+        freq = Frequency(
+            frequency.values[0],
+            frequency.values[-1],
+            frequency.values.size,
+            "hz",
+        )
 
         # Create media for end attenuation
         dgz = DefinedGammaZ0(freq, z0=z0)
         ends = dgz.attenuator(-end_loss.to("dB").magnitude, db=True)
 
         # Create coaxial cable
-        coax = Coaxial(freq, z0=z0, tan_delta=tan_delta)
+        coaxial_kwargs = coaxial_kwargs or {}
+        coax = Coaxial(freq, z0=z0, **coaxial_kwargs)
 
         # Cable is the cascade of ends with coax of specified length
         cable = ends ** coax.line(d=length.to("inch").magnitude, unit="in", name=name) ** ends
