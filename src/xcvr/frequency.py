@@ -58,7 +58,7 @@ class FrequencyPlan:
 class MixerMixin:
     """Adds frequency translation to any Device subclass."""
 
-    def __init__(self, *args, lo_freq: float, sideband: str = "low", **kwargs):
+    def __init__(self, *args, lo_freq: Quantity, sideband: str = "low", **kwargs):
         super().__init__(*args, **kwargs)
         self.lo_freq = lo_freq
         self.sideband = sideband

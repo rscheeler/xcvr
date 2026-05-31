@@ -347,7 +347,10 @@ class System:
 
             if mixer is not None:
                 mixer.interpolate(freq_plan.rf_da)
-                mixer.freq_plan = freq_plan.translate(mixer.lo_freq, mixer.sideband)
+                mixer.freq_plan = freq_plan.translate(
+                    mixer.lo_freq.to("Hz").magnitude,
+                    mixer.sideband,
+                )
                 flat.append(mixer)
                 freq_plan = mixer.freq_plan
 

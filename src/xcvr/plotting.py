@@ -15,7 +15,7 @@ def plot_cascade(
 ) -> plt.Axes:
     """Plot cascaded parameter."""
     # Get cascaded property
-    cp = rfsys.__getattribute__(f"cascaded_{prop}").sel(**kwargs)
+    cp = rfsys.__getattribute__(f"cascaded_{prop}").sel(**kwargs, method="nearest")
 
     # Create figure
     fig, ax = plt.subplots()
@@ -37,10 +37,10 @@ def plot_signal_compression(
 ) -> plt.Axes:
     """Plot signal level and compression through system."""
     # Get signal level and cascaded compression values
-    siglev = rfsys.get_signal_level(input_pwr.sel(**kwargs)).sel(**kwargs)
-    p1db = rfsys.cascaded_p1db.sel(**kwargs)
-    psat = rfsys.cascaded_psat.sel(**kwargs)
-    psatdev = rfsys.get_device_attr("psat").sel(**kwargs)
+    siglev = rfsys.get_signal_level(input_pwr.sel(**kwargs)).sel(**kwargs, method="nearest")
+    p1db = rfsys.cascaded_p1db.sel(**kwargs, method="nearest")
+    psat = rfsys.cascaded_psat.sel(**kwargs, method="nearest")
+    psatdev = rfsys.get_device_attr("psat").sel(**kwargs, method="nearest")
 
     # Ensure units are in dBm
     siglev.data = siglev.data.to("dBm")

@@ -123,10 +123,10 @@ class Cable(Device):
 
 
 class Mixer(MixerMixin, Device):
-    def __init__(self, *args, lo_freq: float, sideband: str = "low", **kwargs):
+    def __init__(self, *args, lo_freq: Quantity, sideband: str = "low", **kwargs):
         super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)
 
 
 class MixerConstant(MixerMixin, Constant):
-    def __init__(self, *args, lo_freq: float, sideband: str = "low", **kwargs):
+    def __init__(self, *args, lo_freq: Quantity, sideband: str = "low", **kwargs):
         super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)
