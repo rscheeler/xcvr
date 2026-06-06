@@ -60,7 +60,10 @@ class LinkBudget:
         rows = asdict(self)
         rows.pop("name")
         for k, v in rows.items():
-            table += f"| {k} | {v}|\r\n"
+            vfmt = v
+            if isinstance(v, (float, Quantity)):
+                vfmt = f"{v:.2f}"
+            table += f"| {k} | {vfmt}|\r\n"
         return table
 
     def _repr_markdown_(self) -> str:
