@@ -62,7 +62,7 @@ class LinkBudget:
         for k, v in rows.items():
             vfmt = v
             if isinstance(v, (float, Quantity)):
-                vfmt = f"{v:.2f}"
+                vfmt = f"{v:.3g}"
             table += f"| {k} | {vfmt}|\r\n"
         return table
 
