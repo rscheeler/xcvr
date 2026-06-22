@@ -40,12 +40,7 @@ class Constant(Device):
         # Generate skrf Frequency object
         frequency = frequency.copy()
         frequency.data = frequency.data.to("Hz")
-        freq = Frequency(
-            frequency.values[0],
-            frequency.values[-1],
-            frequency.values.size,
-            "hz",
-        )
+        freq = Frequency.from_f(frequency.values, unit="Hz")
 
         # Create media and then attenuator from media
         dgz = DefinedGammaZ0(freq, z0=z0)
@@ -98,12 +93,7 @@ class Cable(Device):
         # Generate skrf Frequency object
         frequency = frequency.copy()
         frequency.data = frequency.data.to("Hz")
-        freq = Frequency(
-            frequency.values[0],
-            frequency.values[-1],
-            frequency.values.size,
-            "hz",
-        )
+        freq = Frequency.from_f(frequency.values, unit="Hz")
 
         # Create media for end attenuation
         dgz = DefinedGammaZ0(freq, z0=z0)
