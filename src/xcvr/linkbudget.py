@@ -84,7 +84,7 @@ class LinkBudget:
             table += f"|{list(link_dictionary.keys())[-1]}|{list(link_dictionary.values())[-1].magnitude:0.2f}|{list(link_dictionary.values())[-1].units}|\r\n"
 
         else:
-            table = f"<table><caption>{self.name} {link} Link Budget</caption><thead><tr><th>Parameter</th><th>Value</th><th style='text-align:left'>Unit</th></tdhead></tr>\r\n<tbody>"
+            table = f"<table><caption>{self.name} {link} Link Budget</caption><tr><thead><th>Parameter</th><th>Value</th><th style='text-align:left'>Unit</th></thead></tr>\r\n<tbody>"
 
             link_dictionary = getattr(self, link)
 
