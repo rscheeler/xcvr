@@ -21,6 +21,7 @@ dependencies = [
     "xrench",
     "pint",
     "xarray",
+    "bottleneck",
     "numpy",
     "schemdraw",
     "scikit-rf",

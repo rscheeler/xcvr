@@ -6,13 +6,14 @@ from dataclasses import dataclass
 
 import numpy as np
 import xarray as xr
+from pint import Quantity
 
 
 @dataclass
 class FrequencyPlan:
     """Tracks the RF cascade axis and the local carrier frequency separately."""
 
-    rf: np.ndarray  # shared cascade axis — never changes across the chain
+    rf: np.ndarray  # shared cascade axis, never changes across the chain
     carrier: np.ndarray  # local operating frequency for this device/band
 
     @classmethod
@@ -62,3 +63,15 @@ class MixerMixin:
         super().__init__(*args, **kwargs)
         self.lo_freq = lo_freq
         self.sideband = sideband
+
+        # Ordered (lo_freq, sideband) stages this device represents.
+        # A plain single mixer is just its own one stage; a collapsed
+        # System overrides this with the full chain it stood in for.
+        self.stages: list[tuple[Quantity, str]] = [(lo_freq, sideband)]
+
+    def apply_translation(self, plan: FrequencyPlan) -> FrequencyPlan:
+        """Apply this device's translation stage(s), in order, to a plan."""
+        for lo, sideband in self.stages:
+            lof = lo.to("Hz").magnitude if isinstance(lo, Quantity) else lo
+            plan = plan.translate(lof, sideband)
+        return plan

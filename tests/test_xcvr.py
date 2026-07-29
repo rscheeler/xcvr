@@ -85,7 +85,14 @@ def test_cable_device(frequency):
     """Test Cable device loss calculation."""
     length = 10 * ureg.m
     # Highly lossy tan_delta for clear measurement
-    cable = Cable("TestCable", "Generic", "C1", frequency, length=length, tan_delta=0.5)
+    cable = Cable(
+        "TestCable",
+        "Generic",
+        "C1",
+        frequency,
+        length=length,
+        coaxial_kwargs=dict(tan_delta=0.5),
+    )
 
     # Gain should be negative (loss)
     assert np.all(cable.gain.values < 0)

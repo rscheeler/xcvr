@@ -183,24 +183,34 @@ class Device:
         if isinstance(frequency.data, Quantity):
             frequency.data = frequency.data.to("Hz").magnitude
 
-        # Determine kind of interpolation, if only a single frequency kind should be linear
-        intrpkind = "cubic"
-        linear_size = 4
-        if frequency.size < linear_size or self._network.f.size < linear_size:
-            intrpkind = "linear"
-        # Interpolate the network objects
-        self._network = self._network.interpolate(
-            skrf.Frequency.from_f(frequency, unit="hz"),
-            kind=intrpkind,
-            fill_value="extrapolate",
-        )
-        if self._noise_network is not None:
-            self._noise_network = self._noise_network.interpolate(
+        # Only skip the S-parameter re-splining when we're already exactly
+        # on this grid, that's the part that can extrapolate a cascaded
+        # composite curve differently than its per-device inputs at the
+        # band edges. The attribute normalization below must always run,
+        # even on a no-op network grid (e.g. Device.__init__'s first call),
+        # since it's what shapes nf/oip3/p1db/psat to match `gain`.
+        if not np.array_equal(self._network.f, np.asarray(frequency)):
+            intrpkind = "cubic"
+            linear_size = 4
+            if frequency.size < linear_size or self._network.f.size < linear_size:
+                intrpkind = "linear"
+            # Grab the boundary S-parameter matrices to hold them constant out-of-band
+            edge_vals = (self._network.s[0], self._network.s[-1])
+
+            self._network = self._network.interpolate(
                 skrf.Frequency.from_f(frequency, unit="hz"),
                 kind=intrpkind,
-                fill_value="extrapolate",
+                bounds_error=False,
+                fill_value=edge_vals,
             )
-
+            if self._noise_network is not None:
+                noise_edge_vals = (self._noise_network.s[0], self._noise_network.s[-1])
+                self._noise_network = self._noise_network.interpolate(
+                    skrf.Frequency.from_f(frequency, unit="hz"),
+                    kind=intrpkind,
+                    bounds_error=False,
+                    fill_value=noise_edge_vals,
+                )
         # Interpolate other parameters as necessary
         interp_attrs = ["nf", "oip3", "p1db", "psat"]
         for ia in interp_attrs:
@@ -209,13 +219,30 @@ class Device:
             if isinstance(attr, Quantity):
                 attr = xr.full_like(self.gain, attr.magnitude) * attr.units
             elif isinstance(attr, xr.DataArray):
+                interp_kind = (
+                    "cubic" if attr.frequency.size >= 4 and frequency.size >= 4 else "linear"
+                )
                 if isinstance(attr.data, Quantity):
                     units = attr.data.units
                     attr.data = attr.data.magnitude
-                    attr = attr.interp(frequency=frequency, kwargs={"fill_value": "extrapolate"})
+                    attr = (
+                        attr.interp(
+                            frequency=frequency,
+                            method=interp_kind,
+                        )
+                        .bfill("frequency")
+                        .ffill("frequency")
+                    )
                     attr.data = attr.data * units
                 else:
-                    attr = attr.interp(frequency=frequency, kwargs={"fill_value": "extrapolate"})
+                    attr = (
+                        attr.interp(
+                            frequency=frequency,
+                            method=interp_kind,
+                        )
+                        .bfill("frequency")
+                        .ffill("frequency")
+                    )
                 attr = xrnan2inf(attr)
             self.__setattr__(str_ia, attr)
 
@@ -261,7 +288,6 @@ class System:
     ) -> None:
         # Store attributes
         self._devices = devices
-        self._devices_cache: list[Device] | None = None
         self.name = name
         self.manufacturer = manufacturer
         self.pn = pn
@@ -269,6 +295,8 @@ class System:
 
         # Initialize some variables
         self._expand = False
+        self._rf_grid_override: np.ndarray | None = None
+        self._devices_cache: list[Device] | None = None
         # Use empty box as symbol if not specified
         if symbol is None:
             symbol = Symbol(dsp.Square)
@@ -296,6 +324,27 @@ class System:
             self._devices_cache = self._build_devices()
         return self._devices_cache
 
+    def _ensure_subsystem_on_grid(
+        self,
+        idx: int,
+        dv: Device,
+        target_grid: np.ndarray,
+        collapsed_systems: dict[int, System],
+    ) -> Device:
+        """
+        If device came from a collapsed sub-system whose native grid doesn't
+        match the grid it needs at its position in this cascade, rebuild that
+        sub-system with target_grid imposed.
+        """
+        orig = collapsed_systems.get(idx)
+        if orig is None:
+            return dv
+        if np.array_equal(dv.freq_plan.rf, target_grid):
+            return dv
+        orig._rf_grid_override = target_grid
+        orig._devices_cache = None
+        return orig.as_device
+
     def _build_devices(self) -> list[Device]:
         """
         Builds list of devices. Interpolates each device so all the frequencies
@@ -305,52 +354,89 @@ class System:
         # Deep copy to avoid mutating the originals
         dvs = [deepcopy(d) for d in self._devices]
 
-        # Flatten: expand sub-Systems or collapse them to a single Device
+        # Flatten: expand sub-Systems or collapse them to a single Device.
+        # Track which dlist index a *collapsed* (non-expanded) sub-System
+        # produced, so it can be rebuilt below if its native grid doesn't
+        # match the grid it actually needs at its position in the cascade.
         dlist: list[Device] = []
+        collapsed_systems: dict[int, System] = {}
         for dv in dvs:
             if isinstance(dv, System):
-                dlist += dv.devices if dv.expand else [dv.as_device]
+                if dv.expand:
+                    dlist += dv.devices
+                else:
+                    collapsed_systems[len(dlist)] = dv
+                    dlist.append(dv.as_device)
             elif isinstance(dv, Device):
                 dlist.append(dv)
             else:
                 raise TypeError(f"{dv} not a valid input.")
 
-        # Split the flat list into bands, where each band ends at a mixer (or at the end)
-        bands: list[list[Device]] = []
-        current_band: list[Device] = []
-        for dv in dlist:
-            current_band.append(dv)
+        # RF grid: an externally-imposed grid (set when this System is itself
+        # being collapsed into a parent) takes priority; otherwise anchor to
+        # the first *plain* device, a collapsed sub-system's own grid is a
+        # derived quantity, not something to anchor everyone else to.
+        if self._rf_grid_override is not None:
+            rf_vals = self._rf_grid_override
+        else:
+            plain_idxs = [i for i in range(len(dlist)) if i not in collapsed_systems]
+            if not plain_idxs:
+                raise ValueError(
+                    f"System {self.name!r} contains only collapsed sub-systems with "
+                    "no plain Device to anchor the frequency grid; expand at least "
+                    "one, or set an explicit frequency.",
+                )
+            rf_vals = dlist[plain_idxs[0]].gain.frequency.values  # noqa: PD011
+            rf_vals = rf_vals[~np.isnan(rf_vals)]
+
+        # Split the flat list into bands, where each band ends at a mixer (or
+        # at the end). Indices only, so a later rebuild via _ensure_subsystem_on_grid
+        # doesn't need to touch the banding.
+        bands: list[list[int]] = []
+        current_band: list[int] = []
+        for i, dv in enumerate(dlist):
+            current_band.append(i)
             if isinstance(dv, MixerMixin):
                 bands.append(current_band)
                 current_band = []
         if current_band:
             bands.append(current_band)
 
-        # RF grid comes from the first device in the chain — this is the index,
-        # fixed for the entire cascade
-        rf_vals = bands[0][0].gain.frequency.values  # noqa: PD011
-        rf_vals = rf_vals[~np.isnan(rf_vals)]
         freq_plan = FrequencyPlan.passthrough(rf_vals)
 
         flat: list[Device] = []
         for band in bands:
-            has_mixer = isinstance(band[-1], MixerMixin)
-            plain_devices = band[:-1] if has_mixer else band
-            mixer = band[-1] if has_mixer else None
+            has_mixer = isinstance(dlist[band[-1]], MixerMixin)
+            plain_idxs_in_band = band[:-1] if has_mixer else band
+            mixer_idx = band[-1] if has_mixer else None
 
-            for dv in plain_devices:
+            for i in plain_idxs_in_band:
+                # Plain devices in a band operate at the *current* carrier
+                # frequency, pre-mixer that's the RF grid, post-mixer it's
+                # whatever the last mixer translated it to.
+                dv = self._ensure_subsystem_on_grid(
+                    i,
+                    dlist[i],
+                    freq_plan.carrier,
+                    collapsed_systems,
+                )
                 dv.interpolate(freq_plan.carrier_da)
                 dv.freq_plan = freq_plan
                 dv.t0 = self.t0  # propagate system temperature down
-
                 flat.append(dv)
 
-            if mixer is not None:
-                mixer.interpolate(freq_plan.rf_da)
-                mixer.freq_plan = freq_plan.translate(
-                    mixer.lo_freq.to("Hz").magnitude,
-                    mixer.sideband,
+            if mixer_idx is not None:
+                # A mixer's own network is always referenced to the RF grid
+                # (translation happens *after* interpolation), regardless of
+                # how many upstream translations already occurred.
+                mixer = self._ensure_subsystem_on_grid(
+                    mixer_idx,
+                    dlist[mixer_idx],
+                    freq_plan.rf,
+                    collapsed_systems,
                 )
+                mixer.interpolate(freq_plan.rf_da)
+                mixer.freq_plan = mixer.apply_translation(freq_plan)
                 flat.append(mixer)
                 freq_plan = mixer.freq_plan
 
@@ -372,18 +458,46 @@ class System:
     @property
     def as_device(self) -> Device:
         """Return self as a Device."""
-        device = Device(
-            self.name,
-            self.manufacturer,
-            self.pn,
-            network=self.network,
-            symbol=self.symbol,
-            nf=self.nf,
-            oip3=self.oip3,
-            p1db=self.p1db,
-            psat=self.psat,
-            t0=self.t0,
-        )
+        mixers = [dv for dv in self.devices if isinstance(dv, MixerMixin)]
+        if len(mixers) > 0:
+            # Flatten every mixer's full stage list (not just its
+            # representative lo_freq/sideband) so a collapsed device built
+            # from an already-collapsed nested mixer preserves every stage,
+            # not just the first.
+            stages: list[tuple[Quantity, str]] = []
+            for m in mixers:
+                stages.extend(m.stages)
+            from xcvr.devices import Mixer  # Lazy import to avoid circular imports
+
+            device = Mixer(
+                self.name,
+                self.manufacturer,
+                self.pn,
+                network=self._network_rf,
+                symbol=self.symbol,
+                nf=self.nf,
+                oip3=self.oip3,
+                p1db=self.p1db,
+                psat=self.psat,
+                t0=self.t0,
+                lo_freq=stages[0][0],  # representative value, for repr/inspection only
+                sideband=stages[0][1],
+            )
+            device.stages = stages  # the full chain, this is what apply_translation uses
+
+        else:
+            device = Device(
+                self.name,
+                self.manufacturer,
+                self.pn,
+                network=self.network,
+                symbol=self.symbol,
+                nf=self.nf,
+                oip3=self.oip3,
+                p1db=self.p1db,
+                psat=self.psat,
+                t0=self.t0,
+            )
         device.pdiss = self.cascaded_pdiss.isel(device=-1).item()
         return device
 
@@ -391,14 +505,19 @@ class System:
         """Update designators to ensure they are unique."""
         # Check for duplicates in the name
         namecounts = dict(Counter([d.name for d in devices]))
-        duplicates = {k: v for k, v in namecounts.items() if v > 1}
-        for k in duplicates:
-            i = 0
-            for d in devices:
-                if d.name == k:
-                    # Update name
-                    d.name = f"{d.name}{self.designator_append}{i}"
-                    i += 1
+
+        # Loop until no duplicates
+        while not all([v == 1 for v in namecounts.values()]):
+            duplicates = {k: v for k, v in namecounts.items() if v > 1}
+            for k in duplicates:
+                i = 0
+                for d in devices:
+                    if d.name == k:
+                        # Update name
+                        d.name = f"{d.name}{self.designator_append}{i}"
+                        i += 1
+            namecounts = dict(Counter([d.name for d in devices]))
+
         return devices
 
     @property
@@ -406,33 +525,36 @@ class System:
         """List of Network objects for each device in the system."""
         return [d.network for d in self.devices]
 
-    @property
-    def network(self) -> Network:
+    def _cascade_on_grid(self, rf_grid: np.ndarray) -> Network:
         """
-        Cascaded S-parameters of the system. The frequency axis is the
-        **output carrier frequency** (post-translation), not the RF input frequency.
-        For a system without a mixer these are identical.
+        Cascade device networks onto a single shared frequency grid.
+        Each device's network is already correctly sampled (done in
+        _build_devices). This only relabels the frequency axis so they
+        share one grid for cascading; it never re-interpolates a response
+        curve across a translation, which would fabricate values.
         """
-        # Ensure the cascaded network is on the shared carrier grid
-        rf_grid = self.devices[-1].freq_plan.carrier
-
         nets_scaled = []
-        for net, d in zip(self.networks, self.devices, strict=False):
-            if not d.freq_plan.is_translated:
-                n = net.interpolate(
-                    skrf.Frequency.from_f(d.freq_plan.rf, unit="hz"),
-                    fill_value="extrapolate",
-                )
-                n.frequency = skrf.Frequency.from_f(rf_grid, unit="hz")
-            else:
-                n = net.interpolate(
-                    skrf.Frequency.from_f(rf_grid, unit="hz"),
-                    fill_value="extrapolate",
-                )
+        for net in self.networks:
+            n = net.copy()
+            n.frequency = skrf.Frequency.from_f(rf_grid, unit="hz")
             nets_scaled.append(n)
         net = skrf.network.cascade_list(nets_scaled)
+        net.frequency = skrf.Frequency.from_f(rf_grid, unit="hz")
         net.name = self.name
         return net
+
+    @property
+    def network(self) -> Network:
+        """Cascaded S-parameters on the output carrier grid (post-translation)."""
+        return self._cascade_on_grid(self.devices[-1].freq_plan.carrier)
+
+    @property
+    def _network_rf(self) -> Network:
+        """Cascaded S-parameters on the invariant RF grid (pre-translation).
+        Use this when collapsing the System into an equivalent Device/Mixer,
+        since RF is the one axis that never changes across the cascade.
+        """
+        return self._cascade_on_grid(self.devices[0].freq_plan.rf)
 
     @property
     def s_mag_da(self) -> xr.DataArray:
