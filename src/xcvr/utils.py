@@ -45,3 +45,38 @@ def xrnan2inf(x: xr.DataArray) -> xr.DataArray:
     else:
         xinf = xr.where(np.isnan(x), np.inf, x)
     return xinf
+
+
+def create_pseudo_s_matrix(
+    gain: xr.DataArray,
+    vswr_in: xr.DataArray,
+    vswr_out: xr.DataArray,
+    directivity: xr.DataArray,
+) -> skrf.Network:
+    """Create a pseudo s-matrix from measured network parameters. Magnitude only."""
+    num_freqs = gain.size
+
+    # 1. Magnitudes from VSWR
+    s11_mag = (vswr_in - 1) / (vswr_in + 1)
+    s22_mag = (vswr_out - 1) / (vswr_out + 1)
+
+    # 2. Magnitude from Gain (accounting for mismatch losses)
+    # g_linear = 10 ** (gain_db / 10)
+    mismatch_loss = (1 - s11_mag**2) * (1 - s22_mag**2)
+
+    s21_mag = np.sqrt(gain / mismatch_loss)
+
+    # 3. Isolation magnitude
+    s12_mag = np.sqrt(directivity.data.to("dimensionless")) / s21_mag
+
+    # 4. Construct complex S-matrix (assuming 0 degree phase)
+    s_matrix = np.zeros((num_freqs, 2, 2), dtype=complex)
+    s_matrix[:, 0, 0] = s11_mag + 0j
+    s_matrix[:, 0, 1] = s12_mag + 0j
+    s_matrix[:, 1, 0] = s21_mag + 0j
+    s_matrix[:, 1, 1] = s22_mag + 0j
+
+    # Create scikit-rf Network Object
+    freq = skrf.Frequency.from_f(gain.frequency, unit="hz")
+    network = skrf.Network(frequency=freq, s=s_matrix, z0=50)
+    return network

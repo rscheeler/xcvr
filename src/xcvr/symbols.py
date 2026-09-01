@@ -105,6 +105,31 @@ class Splitter(dsp.Square):
         self.segments.append(schemdraw.segments.Segment(down_end))
 
 
+class Combiner(dsp.Square):
+    """
+    Two-way power splitter.
+
+        Anchors:
+        * N
+        * S
+        * E
+        * W
+    """
+
+    def __init__(self, *d: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        super().__init__(*d, **kwargs)
+        start = [(0.85, 0), (1, 0)]
+        self.segments.append(schemdraw.segments.Segment(start))
+        split_up = [(0.85, 0), (0.35, 0.35)]
+        self.segments.append(schemdraw.segments.Segment(split_up))
+        split_down = [(0.85, 0), (0.35, -0.35)]
+        self.segments.append(schemdraw.segments.Segment(split_down))
+        up_end = [(0, 0.35), (0.35, 0.35)]
+        self.segments.append(schemdraw.segments.Segment(up_end))
+        down_end = [(0.0, -0.35), (0.35, -0.35)]
+        self.segments.append(schemdraw.segments.Segment(down_end))
+
+
 class Port(schemdraw.elements.Element):
     """Port."""
 

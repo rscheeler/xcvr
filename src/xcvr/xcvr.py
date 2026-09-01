@@ -656,15 +656,15 @@ class System:
         """Returns the cumulative cascaded equivalent input temperature
         along the system.
         """
-        # Get noise gain data
-        cng = self.cascaded_noise_gain
+        # Get signal gain (not noise gain) for the Friis cascade
+        cg = self.cascaded_gain
         # Roll
-        cng = cng.shift({"device": 1})
+        cg = cg.shift({"device": 1})
         # Replace first item
-        cng[{"device": 0}] = ureg("0 dB")
+        cg[{"device": 0}] = ureg("0 dB")
 
         # Cascade temperature and sum
-        nt = self.get_device_attr("noise_temperature") / cng
+        nt = self.get_device_attr("noise_temperature") / cg
         ntu = nt.data.units
         nt = nt.cumsum("device")
         nt.attrs = {
@@ -1055,12 +1055,12 @@ class System:
             df = df.drop(columns=["carrier_freq"])
         # Format dataframe
         drop_cols = [
-            "noise_gain",
+            # "noise_gain",
             "noise_temperature",
             # "oip3",
             "iip3",
-            "cascaded_noise_gain",
-            "cascaded_noise_temperature",
+            # "cascaded_noise_gain",
+            # "cascaded_noise_temperature",
             # "cascaded_oip3",
             # "cascaded_iip3",
             "in_port",
