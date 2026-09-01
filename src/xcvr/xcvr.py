@@ -127,14 +127,11 @@ class Device:
         """Device noise figure.
         If a passive device where nf has not been specified it will take the gain.
         """
-        # If not specified get noise gain
         if self._nf is None:
             nf = 1 / self.noise_gain
-            # Convert to dB
             nf.data = nf.data.to("dB")
-            self._nf = nf
-        self._nf = self._add_coords(self._nf)
-        return self._nf
+            return self._add_coords(nf)
+        return self._add_coords(self._nf)
 
     @property
     def p1db(self) -> xr.DataArray:
