@@ -52,6 +52,7 @@ def create_pseudo_s_matrix(
     vswr_in: xr.DataArray,
     vswr_out: xr.DataArray,
     directivity: xr.DataArray,
+    delays=[0, 0, 0, 0],
 ) -> skrf.Network:
     """Create a pseudo s-matrix from measured network parameters. Magnitude only."""
     num_freqs = gain.size
@@ -71,10 +72,10 @@ def create_pseudo_s_matrix(
 
     # 4. Construct complex S-matrix (assuming 0 degree phase)
     s_matrix = np.zeros((num_freqs, 2, 2), dtype=complex)
-    s_matrix[:, 0, 0] = s11_mag + 0j
-    s_matrix[:, 0, 1] = s12_mag + 0j
-    s_matrix[:, 1, 0] = s21_mag + 0j
-    s_matrix[:, 1, 1] = s22_mag + 0j
+    s_matrix[:, 0, 0] = s11_mag * np.exp(-1j * 2 * np.pi * gain.frequency * delays[0])
+    s_matrix[:, 0, 1] = s12_mag * np.exp(-1j * 2 * np.pi * gain.frequency * delays[1])
+    s_matrix[:, 1, 0] = s21_mag * np.exp(-1j * 2 * np.pi * gain.frequency * delays[2])
+    s_matrix[:, 1, 1] = s22_mag * np.exp(-1j * 2 * np.pi * gain.frequency * delays[3])
 
     # Create scikit-rf Network Object
     freq = skrf.Frequency.from_f(gain.frequency, unit="hz")
