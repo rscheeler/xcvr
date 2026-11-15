@@ -13,6 +13,7 @@ from skrf.media import Coaxial, DefinedGammaZ0
 from xrench.units import ureg
 
 from xcvr.frequency import MixerMixin
+from xcvr.spurs import SpurTable
 from xcvr.symbols import Symbol
 from xcvr.xcvr import Device
 
@@ -113,10 +114,44 @@ class Cable(Device):
 
 
 class Mixer(MixerMixin, Device):
-    def __init__(self, *args, lo_freq: Quantity, sideband: str = "low", **kwargs):
-        super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)
+    """Mixer defined by its S-parameters. ``spur_table`` enables spur analysis."""
+
+    def __init__(
+        self,
+        *args,
+        lo_freq: Quantity,
+        sideband: str = "low",
+        spur_table: SpurTable | None = None,
+        spur_ref_power: Quantity | float | None = None,
+        **kwargs,
+    ):
+        super().__init__(
+            *args,
+            lo_freq=lo_freq,
+            sideband=sideband,
+            spur_table=spur_table,
+            spur_ref_power=spur_ref_power,
+            **kwargs,
+        )
 
 
 class MixerConstant(MixerMixin, Constant):
-    def __init__(self, *args, lo_freq: Quantity, sideband: str = "low", **kwargs):
-        super().__init__(*args, lo_freq=lo_freq, sideband=sideband, **kwargs)
+    """Mixer defined by datasheet constants. ``spur_table`` enables spur analysis."""
+
+    def __init__(
+        self,
+        *args,
+        lo_freq: Quantity,
+        sideband: str = "low",
+        spur_table: SpurTable | None = None,
+        spur_ref_power: Quantity | float | None = None,
+        **kwargs,
+    ):
+        super().__init__(
+            *args,
+            lo_freq=lo_freq,
+            sideband=sideband,
+            spur_table=spur_table,
+            spur_ref_power=spur_ref_power,
+            **kwargs,
+        )

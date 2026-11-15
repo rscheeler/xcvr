@@ -25,6 +25,7 @@ pip install xcvr
 - **Nested subsystems** — compose `System` objects from other `System` objects; expand or collapse subsystems in analysis and diagrams
 - **Link budget analysis** — complete RF link budget with Eb/N0, CNR, link margin, G/T, BER, and max range calculations for M-ary PSK and QAM modulations
 - **Signal compression tracking** — propagate signal level through the chain with Psat limiting at each stage
+- **Mixer spur analysis** — datasheet m×n spur tables on any `Mixer`, swept-input spur view with spur-free ranges, classic spur chart, and LO / filter planning for wideband converters
 - **Block diagrams** — auto-generated schematic block diagrams via schemdraw with per-device symbols
 - **Power dissipation** — track supply voltage, current, and cumulative power dissipation per device
 - **Rich DataFrame output** — styled pandas tables with bar charts and compression highlighting
@@ -188,6 +189,78 @@ mqam_ber(ebno=ebno).plot.line(x="ebno", yscale="log")
 plt.gca().set(xlabel="Eb/N0 [dB]", ylabel="BER")
 plt.grid(True)
 ```
+
+### Mixer Spurs
+
+[#mixer-spurs](#mixer-spurs)
+
+Attach a datasheet m×n spur table (rows = LO harmonic *n*, columns = input harmonic *m*, values =
+dB below the desired product) to a `Mixer` / `MixerConstant`, then sweep the cascade:
+
+```python
+from xcvr import SpurTable, plot_spur_sweep
+from xcvr.devices import MixerConstant
+from xcvr.spurs import spur_free_ranges
+
+table = SpurTable.from_csv("my_mixer.csv")      # SpurTable.default() is ILLUSTRATIVE only
+
+mixer = MixerConstant(
+    "MX1", "Generic", "MIXER", frequency=frequency, gain=-7 * ureg.dB, nf=7 * ureg.dB,
+    lo_freq=1.8 * ureg.GHz, sideband="low", spur_table=table,
+)
+rx = System("RX", "Generic", "001", [lna, mixer, if_amp])
+
+# Each mixer is swept over the carriers that actually reach its input
+sweeps = rx.spur_sweeps(signal_bw=40 * ureg.MHz, max_order=9, spec_dbc=88)
+plot_spur_sweep(sweeps["MX1"])                  # spur lines, output band, spur-free strip
+spur_free_ranges(sweeps["MX1"])                 # [(start_Hz, stop_Hz), ...] you can use
+```
+
+`plot_spur_sweep` draws every product against the swept input (coloured by suppression, with
+modulation width shaded), the output band that must stay clean, and flags spurs that cross it:
+bold red if they violate `spec_dbc`. The lower panel shows the worst in-band spur against the
+spec with a green/red strip marking usable and unusable frequencies.
+
+By default an in-band spur is judged at its **full table level** (conservative). Pass
+`use_overlap_fraction=True` to judge it by the power that actually lands in the band.
+
+#### Spectrum sweep at a node (dBm)
+
+For absolute spur power through the whole chain, follow a swept CW tone and every mixing
+product it creates. Each device applies its own S21 at the spur's actual frequency, so filters
+reject spurs and amplifiers boost them:
+
+```python
+from xcvr import ToneSource, plot_spectrum_sweep
+
+trace = rx.trace_tones(ToneSource(np.linspace(2e9, 22e9, 801), -40 * ureg.dBm, "RF"), max_order=9)
+plot_spectrum_sweep(trace.dataset(3))      # node 3 = output of the 3rd device (0 = input)
+trace.summary(node=5)                      # strongest paths: frequency span, peak dBm, sweep freq
+```
+
+One trace per mixing path (e.g. `RF > MX1:2x3-`), numbered markers with a path list, and a
+mouse-over tooltip in interactive backends, plus a dashed noise floor for the desired path.
+Model limits: linear (no compression, amplifier harmonics or intermodulation between tones), spurs
+come only from mixers that have a `spur_table`, and device gain is read from native S-parameters
+(held constant outside the data). The trace reports when it leans on those limits: hollow markers
+and `summary()` columns mark tones outside a device's data, `trace.pruning` counts what the
+`max_order` / `max_tones` / power-floor limits dropped, `trace.compression` compares each device's
+output power with its P1dB (flagged, not modelled), and a `UserWarning` summarises all three
+(`warn=False` silences it). The desired path reproduces
+`System.gain` and `cascaded_gain` at every node; mixers are looked up at the system-input
+frequency, as in the cascade. Set `spur_ref_power` on a mixer
+to make higher-order products track drive level.
+
+Other tools in `xcvr.spurs` and `xcvr.loplan`:
+
+| Function | Purpose |
+| --- | --- |
+| `mixer.spurs(f_in, signal_bw)` | all products for one input frequency (`compute_spurs`) |
+| `plot_spur_chart(table, lo, in_range, ...)` | classic input-vs-output spur chart with the in/out box |
+| `xcvr.loplan.Converter`, `sweep_lo`, `best_los` | which LO frequencies leave the output passband spur-free |
+| `analyze`, `filter_report`, `plot_filter_mask` | filter rejection and guard band required at one LO |
+
+See `examples/mixer_spurs.ipynb` for a complete walk-through.
 
 ## API Reference
 

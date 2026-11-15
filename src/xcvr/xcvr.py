@@ -6,6 +6,7 @@ import base64
 import warnings
 from collections import Counter
 from copy import copy, deepcopy
+from typing import Any
 
 import markdown
 import numpy as np
@@ -438,6 +439,69 @@ class System:
                 freq_plan = mixer.freq_plan
 
         return self._update_designators(flat)
+
+    def trace_tones(self, sources: Any, **kwargs: Any) -> Any:
+        """
+        Follow every mixing product of swept CW source(s) through the whole system.
+
+        Returns a :class:`xcvr.spurtrace.SpurTrace`: absolute spur power (dBm) at every
+        node, with the path of each trace. Use ``.dataset(node)`` and
+        :func:`xcvr.spurtrace.plot_spectrum_sweep`. See :func:`xcvr.spurtrace.trace_tones`
+        for the arguments and the model's limits.
+        """
+        from xcvr.spurtrace import trace_tones  # Lazy import to avoid circular imports
+
+        return trace_tones(self, sources, **kwargs)
+
+    def spur_sweeps(
+        self,
+        signal_bw: Quantity | float,
+        out_bw: Quantity | float | None = None,
+        max_order: int | None = None,
+        rf_backoff_db: float = 0.0,
+        spec_dbc: float | None = None,
+        npts: int = 1001,
+        use_overlap_fraction: bool = False,
+    ) -> dict[str, xr.Dataset]:
+        """
+        Swept spur analysis of every mixer in the system that has a ``spur_table``.
+
+        Each mixer is swept over the carrier frequencies that actually reach its input
+        (taken from the cascade's frequency plan, so upstream mixers are accounted for).
+        Mixers without a spur table, and collapsed multi-stage sub-systems, are skipped.
+
+        Args:
+            signal_bw: Instantaneous signal bandwidth at the mixer input.
+            out_bw: Output band to protect (default: ``signal_bw``).
+            max_order: Ignore products with m + n above this.
+            rf_backoff_db: Input drive below the spur table's reference level.
+            spec_dbc: Required spur suppression, stored in each result for plotting.
+            npts: Minimum number of sweep points.
+            use_overlap_fraction: Judge in-band spurs by the power that lands in the band
+                instead of their full table level (default, conservative).
+
+        Returns:
+            ``{mixer name: xarray.Dataset}``; plot each with
+            :func:`xcvr.spurs.plot_spur_sweep`.
+        """
+        devs = self.devices
+        out: dict[str, xr.Dataset] = {}
+        for i, dv in enumerate(devs):
+            if not isinstance(dv, MixerMixin) or dv.spur_table is None or len(dv.stages) != 1:
+                continue
+            # Carrier at the mixer input = carrier of whatever precedes it (the RF grid if first)
+            f_in = devs[i - 1].freq_plan.carrier if i > 0 else dv.freq_plan.rf
+            out[dv.name] = dv.spur_sweep(
+                f_in,
+                signal_bw,
+                out_bw=out_bw,
+                max_order=max_order,
+                rf_backoff_db=rf_backoff_db,
+                spec_dbc=spec_dbc,
+                npts=npts,
+                use_overlap_fraction=use_overlap_fraction,
+            )
+        return out
 
     @property
     def expand(self) -> bool:
